@@ -35,13 +35,27 @@ Este projeto é um **aplicativo web** para análise de diagramas P&ID usando **A
 5. Exporte os resultados (Excel/JSON)
 
 ## Como rodar
-1. Configure as variáveis do Azure no `backend/backend.py`.
+
+### Pré-requisitos
+1. Configure a chave de API da OpenAI:
+   ```bash
+   export OPENAI_API_KEY="sua-chave-aqui"
+   ```
+   
+   Ou no Windows:
+   ```cmd
+   set OPENAI_API_KEY=sua-chave-aqui
+   ```
+
+### Iniciando o backend
 2. Instale dependências e rode o backend:
    ```bash
    cd backend
    pip install -r requirements.txt
    uvicorn backend:app --reload --port 8000
    ```
+   
+### Iniciando o frontend
 3. Rode o frontend:
    ```bash
    cd frontend
