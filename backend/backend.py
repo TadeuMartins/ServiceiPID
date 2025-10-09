@@ -505,6 +505,178 @@ async def analyze_pdf(
 
 
 # ============================================================
+# GERAÇÃO DE P&ID A PARTIR DE PROMPT
+# ============================================================
+def build_generation_prompt(process_description: str, width_mm: float = 1189.0, height_mm: float = 841.0) -> str:
+    """
+    Constrói prompt para gerar P&ID completo a partir de descrição do processo.
+    A0 sheet dimensions: 1189mm x 841mm (landscape)
+    """
+    prompt = f"""
+Você é um especialista em diagramas P&ID (Piping and Instrumentation Diagram) e símbolos ISA.
+
+Tarefa: Gere um P&ID completo para o seguinte processo:
+"{process_description}"
+
+Especificações:
+- Folha A0 em formato paisagem: {width_mm} mm (X) x {height_mm} mm (Y)
+- Distribua equipamentos e instrumentos de forma lógica e organizada
+- Use coordenadas X e Y apropriadas dentro dos limites da folha
+- Inclua equipamentos principais (bombas, tanques, vasos, trocadores de calor, etc.)
+- Inclua instrumentos de controle e medição (sensores de pressão, temperatura, vazão, nível, válvulas de controle, etc.)
+- Use nomenclatura ISA correta para tags e descrições
+- Defina conexões lógicas de processo (from/to) entre equipamentos
+
+Regras para TAGs:
+- Equipamentos: use prefixos como P (bomba), T (tanque), V (vaso), E (trocador), R (reator), etc. seguido de número (ex: P-101, T-201)
+- Instrumentos: use nomenclatura ISA (ex: PI-101 para Indicador de Pressão, TT-201 para Transmissor de Temperatura)
+- Válvulas de controle: FV, PV, LV, TV (ex: FV-101 para Válvula de Controle de Vazão)
+
+Formato de saída: JSON com lista de equipamentos e instrumentos
+
+Exemplo de saída esperada:
+[
+  {{
+    "tag": "P-101",
+    "tipo": "Bomba",
+    "descricao": "Bomba Centrífuga",
+    "x_mm": 200.0,
+    "y_mm": 400.0,
+    "from": "T-101",
+    "to": "E-201"
+  }},
+  {{
+    "tag": "PI-101",
+    "tipo": "Instrumento",
+    "descricao": "Indicador de Pressão",
+    "x_mm": 250.0,
+    "y_mm": 380.0,
+    "from": "P-101",
+    "to": "N/A"
+  }}
+]
+
+Importante:
+- Retorne SOMENTE o JSON (lista de objetos)
+- Distribua os equipamentos de forma que o fluxo do processo seja claro (entrada à esquerda, saída à direita)
+- Posicione instrumentos próximos aos equipamentos que monitoram
+- Garanta que todas as coordenadas estejam dentro dos limites: X entre 0 e {width_mm}, Y entre 0 e {height_mm}
+"""
+    return prompt.strip()
+
+
+@app.post("/generate")
+async def generate_pid(
+    prompt: str = Query(..., description="Descrição do processo em linguagem natural")
+):
+    """
+    Gera P&ID a partir de descrição em linguagem natural.
+    """
+    if not OPENAI_API_KEY or OPENAI_API_KEY == "COLOQUE_SUA_CHAVE_AQUI":
+        raise HTTPException(status_code=400, detail="Defina OPENAI_API_KEY.")
+    
+    if not prompt or len(prompt.strip()) < 10:
+        raise HTTPException(status_code=400, detail="Prompt muito curto. Descreva o processo com mais detalhes.")
+    
+    log_to_front(f"🎨 Gerando P&ID para: {prompt}")
+    
+    # Dimensões folha A0 (landscape)
+    W_mm = 1189.0
+    H_mm = 841.0
+    
+    try:
+        # Gera o prompt de geração
+        generation_prompt = build_generation_prompt(prompt, W_mm, H_mm)
+        
+        # Chama LLM sem imagem (apenas texto)
+        log_to_front("🤖 Chamando LLM para gerar equipamentos...")
+        resp = client.chat.completions.create(
+            model=FALLBACK_MODEL,  # usa gpt-4o para geração de texto
+            messages=[{
+                "role": "user",
+                "content": generation_prompt
+            }],
+            temperature=0.7,  # um pouco de criatividade
+            timeout=OPENAI_REQUEST_TIMEOUT
+        )
+        
+        raw = resp.choices[0].message.content if resp and resp.choices else ""
+        log_to_front(f"📝 RAW GENERATION OUTPUT: {raw[:500]}")
+        
+        # Parseia JSON
+        items = ensure_json_list(raw)
+        
+        if not items:
+            raise ValueError("LLM não retornou equipamentos válidos")
+        
+        log_to_front(f"✅ Gerados {len(items)} equipamentos/instrumentos")
+        
+        # Processa cada item
+        result_items = []
+        for it in items:
+            if not isinstance(it, dict):
+                continue
+            
+            x_in = float(it.get("x_mm", 0.0))
+            y_in = float(it.get("y_mm", 0.0))
+            
+            # Clamp nas dimensões A0
+            x_in = max(0.0, min(W_mm, x_in))
+            y_in = max(0.0, min(H_mm, y_in))
+            
+            # Flip Y para COMOS
+            y_cad = H_mm - y_in
+            
+            item = {
+                "tag": it.get("tag", "N/A"),
+                "descricao": it.get("descricao", "Equipamento"),
+                "tipo": it.get("tipo", ""),
+                "x_mm": x_in,
+                "y_mm": y_in,
+                "y_mm_cad": y_cad,
+                "pagina": 1,  # gerado = página 1
+                "from": it.get("from", "N/A"),
+                "to": it.get("to", "N/A"),
+                "page_width_mm": W_mm,
+                "page_height_mm": H_mm,
+            }
+            
+            # Aplica matcher para SystemFullName
+            try:
+                tipo = it.get("tipo", "")
+                match = match_system_fullname(item["tag"], item["descricao"], tipo)
+                item.update(match)
+                log_to_front(f"  ✓ {item['tag']}: {match.get('SystemFullName', 'N/A')}")
+            except Exception as e:
+                item.update({
+                    "SystemFullName": None,
+                    "Confiança": 0,
+                    "matcher_error": str(e)
+                })
+            
+            result_items.append(item)
+        
+        # Remove duplicatas
+        unique = dedup_items(result_items, page_num=1, tol_mm=50.0)
+        
+        log_to_front(f"✅ Geração concluída: {len(unique)} itens únicos")
+        
+        # Retorna no mesmo formato do /analyze
+        response_data = [{
+            "pagina": 1,
+            "modelo": FALLBACK_MODEL,
+            "resultado": unique
+        }]
+        
+        return JSONResponse(content=response_data)
+        
+    except Exception as e:
+        log_to_front(f"❌ Erro na geração: {e}")
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Erro ao gerar P&ID: {str(e)}")
+
+
+# ============================================================
 # MAIN
 # ============================================================
 if __name__ == "__main__":
