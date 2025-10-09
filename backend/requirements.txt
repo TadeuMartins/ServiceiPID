@@ -3,3 +3,9 @@ uvicorn
 PyMuPDF
 openai
 python-multipart
+httpx
+certifi
+pandas
+numpy
+openpyxl
+pillow
