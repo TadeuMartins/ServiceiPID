@@ -304,6 +304,8 @@ Se retornar coordenadas locais, **some a origem** e devolva coordenadas globais.
 # LLM CALL
 # ============================================================
 def llm_call(image_b64: str, prompt: str, prefer_model: str = PRIMARY_MODEL):
+    global client
+    
     if prefer_model == "gpt-5":
         try:
             resp = client.chat.completions.create(
@@ -319,7 +321,29 @@ def llm_call(image_b64: str, prompt: str, prefer_model: str = PRIMARY_MODEL):
             )
             return "gpt-5", resp
         except Exception as e:
-            log_to_front(f"⚠️ gpt-5 falhou: {e}")
+            # Check if it's an SSL error and retry without SSL verification
+            if "SSL" in str(e) or "certificate" in str(e).lower():
+                log_to_front(f"⚠️ gpt-5 falhou com erro SSL: {e}")
+                log_to_front("🔄 Tentando novamente sem verificação SSL...")
+                client = make_client(verify_ssl=False)
+                try:
+                    resp = client.chat.completions.create(
+                        model="gpt-5",
+                        messages=[{
+                            "role": "user",
+                            "content": [
+                                {"type": "text", "text": prompt},
+                                {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{image_b64}"}}
+                            ]
+                        }],
+                        timeout=OPENAI_REQUEST_TIMEOUT
+                    )
+                    return "gpt-5", resp
+                except Exception as e2:
+                    log_to_front(f"⚠️ gpt-5 falhou novamente: {e2}")
+            else:
+                log_to_front(f"⚠️ gpt-5 falhou: {e}")
+    
     try:
         resp = client.chat.completions.create(
             model=FALLBACK_MODEL,
@@ -335,9 +359,33 @@ def llm_call(image_b64: str, prompt: str, prefer_model: str = PRIMARY_MODEL):
         )
         return FALLBACK_MODEL, resp
     except Exception as e:
-        log_to_front(f"❌ Fallback {FALLBACK_MODEL} falhou: {e}")
-        traceback.print_exc()
-        raise
+        # Check if it's an SSL error and retry without SSL verification
+        if "SSL" in str(e) or "certificate" in str(e).lower():
+            log_to_front(f"❌ Fallback {FALLBACK_MODEL} falhou com erro SSL: {e}")
+            log_to_front("🔄 Tentando novamente sem verificação SSL...")
+            client = make_client(verify_ssl=False)
+            try:
+                resp = client.chat.completions.create(
+                    model=FALLBACK_MODEL,
+                    messages=[{
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": prompt},
+                            {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{image_b64}"}}
+                        ]
+                    }],
+                    temperature=0,
+                    timeout=OPENAI_REQUEST_TIMEOUT
+                )
+                return FALLBACK_MODEL, resp
+            except Exception as e2:
+                log_to_front(f"❌ Fallback {FALLBACK_MODEL} falhou novamente: {e2}")
+                traceback.print_exc()
+                raise
+        else:
+            log_to_front(f"❌ Fallback {FALLBACK_MODEL} falhou: {e}")
+            traceback.print_exc()
+            raise
 
 
 # ============================================================
@@ -590,15 +638,35 @@ async def generate_pid(
         
         # Chama LLM sem imagem (apenas texto)
         log_to_front("🤖 Chamando LLM para gerar equipamentos...")
-        resp = client.chat.completions.create(
-            model=FALLBACK_MODEL,  # usa gpt-4o para geração de texto
-            messages=[{
-                "role": "user",
-                "content": generation_prompt
-            }],
-            temperature=0.7,  # um pouco de criatividade
-            timeout=OPENAI_REQUEST_TIMEOUT
-        )
+        
+        global client
+        try:
+            resp = client.chat.completions.create(
+                model=FALLBACK_MODEL,  # usa gpt-4o para geração de texto
+                messages=[{
+                    "role": "user",
+                    "content": generation_prompt
+                }],
+                temperature=0.7,  # um pouco de criatividade
+                timeout=OPENAI_REQUEST_TIMEOUT
+            )
+        except Exception as e:
+            # Check if it's an SSL error and retry without SSL verification
+            if "SSL" in str(e) or "certificate" in str(e).lower():
+                log_to_front(f"⚠️ Erro SSL detectado: {e}")
+                log_to_front("🔄 Tentando novamente sem verificação SSL...")
+                client = make_client(verify_ssl=False)
+                resp = client.chat.completions.create(
+                    model=FALLBACK_MODEL,
+                    messages=[{
+                        "role": "user",
+                        "content": generation_prompt
+                    }],
+                    temperature=0.7,
+                    timeout=OPENAI_REQUEST_TIMEOUT
+                )
+            else:
+                raise
         
         raw = resp.choices[0].message.content if resp and resp.choices else ""
         log_to_front(f"📝 RAW GENERATION OUTPUT: {raw[:500]}")
@@ -681,5 +749,37 @@ async def generate_pid(
 # ============================================================
 if __name__ == "__main__":
     import uvicorn
-    port = int(os.getenv("PORT", "8000"))
-    uvicorn.run("backend:app", host="0.0.0.0", port=port, reload=True)
+    import socket
+    
+    # Try to get port from environment, default to 8000
+    default_port = int(os.getenv("PORT", "8000"))
+    
+    # List of ports to try if the default fails
+    ports_to_try = [default_port, 8001, 8002, 8003, 8080, 5000]
+    
+    # Remove duplicates while preserving order
+    ports_to_try = list(dict.fromkeys(ports_to_try))
+    
+    selected_port = None
+    for port in ports_to_try:
+        try:
+            # Try to bind to the port to check if it's available
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.bind(("0.0.0.0", port))
+                selected_port = port
+                break
+        except OSError as e:
+            if port == ports_to_try[-1]:
+                # This was the last port to try
+                print(f"❌ Não foi possível vincular a nenhuma porta. Último erro: {e}")
+                print(f"💡 Portas tentadas: {', '.join(map(str, ports_to_try))}")
+                print(f"💡 Solução: Especifique uma porta disponível usando PORT=<porta>")
+                print(f"   Exemplo Windows: set PORT=9000 && uvicorn backend:app --reload --port 9000")
+                print(f"   Exemplo Linux/Mac: PORT=9000 uvicorn backend:app --reload --port 9000")
+                raise
+            else:
+                print(f"⚠️  Porta {port} não disponível, tentando porta {ports_to_try[ports_to_try.index(port) + 1]}...")
+    
+    if selected_port:
+        print(f"✅ Iniciando servidor na porta {selected_port}")
+        uvicorn.run("backend:app", host="0.0.0.0", port=selected_port, reload=True)
