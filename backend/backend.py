@@ -39,6 +39,9 @@ def make_client(verify_ssl: bool = True) -> OpenAI:
         verify=certifi.where() if verify_ssl else False,
         timeout=OPENAI_REQUEST_TIMEOUT,
     )
+    # Only create client if API key is set
+    if not OPENAI_API_KEY:
+        return None
     return OpenAI(api_key=OPENAI_API_KEY, http_client=http_client)
 
 
