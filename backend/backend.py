@@ -655,7 +655,7 @@ TAREFA: Desenvolver um P&ID COMPLETO e DETALHADO para o seguinte processo:
 ESPECIFICAÇÕES TÉCNICAS DO DIAGRAMA:
 - Folha: A0 formato paisagem (landscape)
 - Dimensões: {width_mm} mm (largura/X) x {height_mm} mm (altura/Y)
-- Sistema de coordenadas: X crescente da esquerda para direita, Y crescente de baixo para cima
+- Sistema de coordenadas: X crescente da esquerda para direita, Y crescente de cima para baixo
 - Layout: Fluxo do processo da esquerda (entrada) para direita (saída)
 - Compatibilidade: COMOS (Siemens) - coordenadas absolutas
 
@@ -782,7 +782,7 @@ COMPLETUDE E DETALHAMENTO:
 - Inclua elementos de segurança: PSVs, alarmes, intertravamentos
 - Adicione instrumentação redundante onde crítico
 - Considere utilidades necessárias (vapor, água, ar, etc.)
-- MÍNIMO ESPERADO: 15-30 equipamentos/instrumentos para processo simples, 30-80 para processo completo
+
 
 FORMATO DE SAÍDA (JSON):
 [
