@@ -118,17 +118,32 @@ cp .env.example .env
 ## Como Usar
 
 ### Para Desenvolvedores
-1. Copie o arquivo de exemplo:
+
+**⚠️ IMPORTANTE:** O arquivo `.env` NÃO existe no repositório. Você precisa criá-lo!
+
+1. **Crie o arquivo `.env`** copiando o template:
+   
+   **Linux/Mac:**
    ```bash
    cp .env.example .env
    ```
+   
+   **Windows (CMD):**
+   ```cmd
+   copy .env.example .env
+   ```
+   
+   **Windows (PowerShell):**
+   ```powershell
+   Copy-Item .env.example .env
+   ```
 
-2. Edite o arquivo `.env` e adicione sua chave OpenAI:
+2. **Edite o arquivo `.env`** que foi criado e adicione sua chave OpenAI:
    ```
    OPENAI_API_KEY=sua-chave-openai-real-aqui
    ```
 
-3. Inicie a aplicação normalmente:
+3. **Inicie a aplicação** normalmente:
    ```bash
    cd backend
    pip install -r requirements.txt
