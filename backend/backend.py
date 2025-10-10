@@ -270,7 +270,8 @@ Você é um engenheiro especialista em diagramas P&ID (Piping and Instrumentatio
 ANÁLISE DE FLUXOGRAMA DE PROCESSO - ESPECIFICAÇÕES TÉCNICAS:
 - Dimensões da página: {width_mm} mm (X - eixo horizontal) x {height_mm} mm (Y - eixo vertical)
 - Sistema de coordenadas: ABSOLUTO e GLOBAL da página completa
-- Orientação: X crescente da esquerda para direita, Y crescente de baixo para cima
+- Orientação: X crescente da esquerda para direita, Y crescente de cima para baixo
+- Origem: Topo superior esquerdo é o ponto (0, 0)
 - Compatibilidade: COMOS (Siemens) - coordenadas globais obrigatórias
 
 OBJETIVO: Extrair TODOS os elementos do fluxograma de processo com máxima precisão técnica.
@@ -324,7 +325,8 @@ REGRAS CRÍTICAS PARA EXTRAÇÃO:
    - SEMPRE retorne coordenadas X e Y em relação ao TOTAL da página ({width_mm} x {height_mm} mm)
    - Mesmo em análise de quadrantes, as coordenadas devem ser GLOBAIS
    - X: 0.0 (extrema esquerda) até {width_mm} (extrema direita)
-   - Y: 0.0 (base da página) até {height_mm} (topo da página)
+   - Y: 0.0 (topo da página) até {height_mm} (base da página)
+   - Origem: Topo superior esquerdo é o ponto (0, 0)
    - Precisão: até 0.1 mm
 
 2. TAGS E IDENTIFICAÇÃO:
@@ -656,6 +658,7 @@ ESPECIFICAÇÕES TÉCNICAS DO DIAGRAMA:
 - Folha: A0 formato paisagem (landscape)
 - Dimensões: {width_mm} mm (largura/X) x {height_mm} mm (altura/Y)
 - Sistema de coordenadas: X crescente da esquerda para direita, Y crescente de cima para baixo
+- Origem: Topo superior esquerdo é o ponto (0, 0)
 - Layout: Fluxo do processo da esquerda (entrada) para direita (saída)
 - Compatibilidade: COMOS (Siemens) - coordenadas absolutas
 
