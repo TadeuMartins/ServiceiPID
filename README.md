@@ -37,19 +37,33 @@ Este projeto é um **aplicativo web** para análise de diagramas P&ID usando **A
 ## Como rodar
 
 ### Pré-requisitos
-1. Configure a chave de API da OpenAI criando um arquivo `.env`:
+1. **⚠️ IMPORTANTE: Crie o arquivo `.env` com sua chave da OpenAI**
    
-   Copie o arquivo de exemplo:
+   O arquivo `.env` **não existe no repositório** por segurança. Você precisa criá-lo a partir do template:
+   
+   **Linux/Mac:**
    ```bash
    cp .env.example .env
    ```
    
-   Depois edite o arquivo `.env` e adicione sua chave OpenAI:
+   **Windows (CMD):**
+   ```cmd
+   copy .env.example .env
+   ```
+   
+   **Windows (PowerShell):**
+   ```powershell
+   Copy-Item .env.example .env
+   ```
+   
+   Depois **edite o arquivo `.env`** que foi criado e adicione sua chave OpenAI:
    ```
    OPENAI_API_KEY=sua-chave-openai-aqui
    ```
    
    **Nota:** O arquivo `.env` será automaticamente carregado pela aplicação e não deve ser commitado no repositório (já está no `.gitignore`).
+   
+   > 📖 **Precisa de ajuda?** Veja o guia completo: [COMO_CONFIGURAR_ENV.md](COMO_CONFIGURAR_ENV.md)
 
 ### Iniciando o backend
 2. Instale dependências e rode o backend:
@@ -151,11 +165,32 @@ uvicorn backend:app --reload --port 9000
 Se você receber erros relacionados à API key da OpenAI:
 
 1. **Verifique se o arquivo `.env` existe** na raiz do projeto
+   - ❌ **Se não existir**: Você precisa criá-lo! Execute:
+     ```bash
+     # Linux/Mac
+     cp .env.example .env
+     
+     # Windows CMD
+     copy .env.example .env
+     
+     # Windows PowerShell
+     Copy-Item .env.example .env
+     ```
+   - ✅ **Se já existir**: Prossiga para o próximo passo
+
 2. **Certifique-se de que a chave está correta** no arquivo `.env`:
    ```
    OPENAI_API_KEY=sua-chave-openai-aqui
    ```
-3. **Reinicie o servidor** após modificar o arquivo `.env`
+   - Abra o arquivo `.env` com um editor de texto (Notepad, VSCode, etc.)
+   - Substitua `sua-chave-openai-aqui` pela sua chave real da OpenAI
+   - Salve o arquivo
+
+3. **Reinicie o servidor** após criar/modificar o arquivo `.env`
+
+**Lembre-se:** O arquivo `.env` NÃO existe no repositório por segurança. Você SEMPRE precisa criá-lo manualmente usando o template `.env.example`.
+
+> 📖 **Precisa de ajuda detalhada?** Consulte o guia completo: [COMO_CONFIGURAR_ENV.md](COMO_CONFIGURAR_ENV.md)
 
 O arquivo `.env` é carregado automaticamente pelo backend usando `python-dotenv`.
 
