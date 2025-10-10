@@ -328,6 +328,7 @@ REGRAS CRÍTICAS PARA EXTRAÇÃO:
    - Y: 0.0 (topo da página) até {height_mm} (base da página)
    - Origem: Topo superior esquerdo é o ponto (0, 0)
    - Precisão: até 0.1 mm
+   - **IMPORTANTE: As coordenadas devem referenciar o CENTRO/MEIO do equipamento ou instrumento, NÃO tubulações ou outros elementos auxiliares**
 
 2. TAGS E IDENTIFICAÇÃO:
    - Capture TAGs completas mesmo se prefixo e número estiverem separados visualmente
@@ -648,150 +649,158 @@ def build_generation_prompt(process_description: str, width_mm: float = 1189.0, 
     A0 sheet dimensions: 1189mm x 841mm (landscape)
     """
     prompt = f"""
-Você é um engenheiro de processos sênior especializado em elaboração de diagramas P&ID (Piping and Instrumentation Diagram) 
-segundo normas ISA S5.1, S5.2, S5.3 e boas práticas de engenharia de processos industriais.
+You are an educational tool that helps demonstrate P&ID (Piping and Instrumentation Diagram) concepts 
+following ISA S5.1, S5.2, S5.3 standards and process engineering best practices.
 
-TAREFA: Desenvolver um P&ID COMPLETO e DETALHADO para o seguinte processo:
+TASK: Generate a representative P&ID example for educational purposes based on this process description:
 "{process_description}"
 
-ESPECIFICAÇÕES TÉCNICAS DO DIAGRAMA:
-- Folha: A0 formato paisagem (landscape)
-- Dimensões: {width_mm} mm (largura/X) x {height_mm} mm (altura/Y)
-- Sistema de coordenadas: X crescente da esquerda para direita, Y crescente de cima para baixo
-- Origem: Topo superior esquerdo é o ponto (0, 0)
-- Layout: Fluxo do processo da esquerda (entrada) para direita (saída)
-- Compatibilidade: COMOS (Siemens) - coordenadas absolutas
+NOTE: This is for educational demonstration and learning purposes only, to illustrate P&ID concepts and ISA standards.
 
-REQUISITOS DE PROJETO - EQUIPAMENTOS PRINCIPAIS:
+TECHNICAL SPECIFICATIONS:
+- Sheet: A0 landscape format
+- Dimensions: {width_mm} mm (width/X) x {height_mm} mm (height/Y)
+- Coordinate system: X increases left to right, Y increases top to bottom
+- Origin: Top left corner is point (0, 0)
+- Layout: Process flow from left (inlet) to right (outlet)
+- Compatibility: COMOS (Siemens) - absolute coordinates
 
-1. EQUIPAMENTOS DE PROCESSO (incluir conforme aplicável ao processo):
-   - Bombas: P-101, P-102, etc. (centrífugas, alternativas, de vácuo)
-     * Especificar: tipo, capacidade nominal, redundância (A/B se aplicável)
-   - Tanques de armazenamento: T-101, TK-101, etc.
-     * Incluir: indicadores de nível, válvulas de entrada/saída, vents, drenos
-   - Vasos de processo: V-101, D-101 (separadores, flash drums, acumuladores)
-     * Incluir: controles de pressão, nível, temperatura
-   - Trocadores de calor: E-101, E-102, HE-101 (casco-tubo, placas, resfriadores a ar)
-     * Incluir: instrumentação em ambos os lados (processo e utilidade)
-   - Reatores: R-101, R-102 (CSTR, PFR, batelada)
-     * Incluir: agitação, controle de temperatura, pressão, instrumentação analítica
-   - Torres: C-101, T-101 (destilação, absorção, stripping)
-     * Incluir: condensadores, refervedores, pratos/recheio, refluxo
-   - Compressores/Sopradores: K-101, C-101
-     * Incluir: sistemas de lubrificação, resfriamento, anti-surge
-   - Fornos/Caldeiras: F-101, H-101, B-101
-     * Incluir: controles de combustão, temperatura, pressão
-   - Filtros/Separadores: FL-101, S-101, CY-101
-   - Secadores/Evaporadores: DR-101, EV-101
+TYPICAL P&ID ELEMENTS - MAIN EQUIPMENT:
 
-2. INSTRUMENTAÇÃO COMPLETA (nomenclatura ISA S5.1):
+1. PROCESS EQUIPMENT (include as applicable):
+   - Pumps: P-101, P-102, etc. (centrifugal, reciprocating, vacuum)
+     * Typical specs: type, capacity, redundancy (A/B if applicable)
+   - Storage tanks: T-101, TK-101, etc.
+     * Typical items: level indicators, inlet/outlet valves, vents, drains
+   - Process vessels: V-101, D-101 (separators, flash drums, accumulators)
+     * Typical controls: pressure, level, temperature
+   - Heat exchangers: E-101, E-102, HE-101 (shell-tube, plate, air coolers)
+     * Typical instrumentation: both sides (process and utility)
+   - Reactors: R-101, R-102 (CSTR, PFR, batch)
+     * Typical features: agitation, temperature control, pressure, analytical instrumentation
+   - Towers: C-101, T-101 (distillation, absorption, stripping)
+     * Typical components: condensers, reboilers, trays/packing, reflux
+   - Compressors/Blowers: K-101, C-101
+     * Typical systems: lubrication, cooling, anti-surge
+   - Furnaces/Boilers: F-101, H-101, B-101
+     * Typical controls: combustion, temperature, pressure
+   - Filters/Separators: FL-101, S-101, CY-101
+   - Dryers/Evaporators: DR-101, EV-101
 
-   Pressão:
-   - PI: Indicadores de pressão (manômetros locais)
-   - PT: Transmissores de pressão (4-20mA para DCS/SDCD)
+2. COMPLETE INSTRUMENTATION (ISA S5.1 nomenclature):
+
+   Pressure:
+   - PI: Pressure indicators (local gauges)
+   - PT: Pressure transmitters (4-20mA to DCS/SCADA)
    - PG: Pressure gauges
-   - PS/PSH/PSL: Switches (alarmes alto/baixo)
-   - PCV: Válvulas de controle de pressão
-   - PSV/PRV: Válvulas de segurança/alívio
+   - PS/PSH/PSL: Switches (high/low alarms)
+   - PCV: Pressure control valves
+   - PSV/PRV: Safety/relief valves
 
-   Temperatura:
-   - TI: Indicadores de temperatura
-   - TT: Transmissores de temperatura (termopares, RTDs)
-   - TE: Elementos primários (poços termométricos)
-   - TS/TSH/TSL: Switches de temperatura
-   - TCV: Válvulas de controle de temperatura
+   Temperature:
+   - TI: Temperature indicators
+   - TT: Temperature transmitters (thermocouples, RTDs)
+   - TE: Primary elements (thermowells)
+   - TS/TSH/TSL: Temperature switches
+   - TCV: Temperature control valves
 
-   Vazão:
-   - FI: Indicadores de vazão
-   - FT: Transmissores de vazão
-   - FE: Elementos primários (orifício, venturi, turbina, magnético, Coriolis)
-   - FQ: Totalizadores
-   - FS: Switches de vazão
-   - FCV: Válvulas de controle de vazão
+   Flow:
+   - FI: Flow indicators
+   - FT: Flow transmitters
+   - FE: Primary elements (orifice, venturi, turbine, magnetic, Coriolis)
+   - FQ: Flow totalizers
+   - FS: Flow switches
+   - FCV: Flow control valves
 
-   Nível:
-   - LI: Indicadores de nível
-   - LT: Transmissores de nível (radar, ultrassônico, pressão diferencial)
-   - LG: Visores de nível (gauge glass)
-   - LS/LSH/LSL/LSHH/LSLL: Switches de nível (múltiplos níveis)
-   - LCV: Válvulas de controle de nível
+   Level:
+   - LI: Level indicators
+   - LT: Level transmitters (radar, ultrasonic, differential pressure)
+   - LG: Level gauge glass
+   - LS/LSH/LSL/LSHH/LSLL: Level switches (multiple levels)
+   - LCV: Level control valves
 
-   Análise e qualidade:
-   - AI/AT: Analisadores (pH, condutividade, O2, etc.)
-   - QI/QT: Indicadores/transmissores de qualidade
-   - Analisadores específicos: pH, condutividade, turbidez, concentração, cromatografia
+   Analysis and quality:
+   - AI/AT: Analyzers (pH, conductivity, O2, etc.)
+   - QI/QT: Quality indicators/transmitters
+   - Specific analyzers: pH, conductivity, turbidity, concentration, chromatography
 
-3. VÁLVULAS E ATUADORES:
-   - Válvulas de controle: FCV, PCV, LCV, TCV (com atuadores pneumáticos/elétricos)
-   - Válvulas manuais: gate, globe, ball, butterfly, check, plug
-   - Válvulas de segurança: PSV, TSV, PRV
-   - Válvulas especiais: solenoides, diafragma, pinch
-   - Indicar: tipo de atuador (pneumático, elétrico, hidráulico)
-   - Indicar: ação na falha (FC - fail close, FO - fail open, FL - fail last)
+3. VALVES AND ACTUATORS:
+   - Control valves: FCV, PCV, LCV, TCV (with pneumatic/electric actuators)
+   - Manual valves: gate, globe, ball, butterfly, check, plug
+   - Safety valves: PSV, TSV, PRV
+   - Special valves: solenoid, diaphragm, pinch
+   - Indicate: actuator type (pneumatic, electric, hydraulic)
+   - Indicate: fail action (FC - fail close, FO - fail open, FL - fail last)
 
-4. SISTEMAS AUXILIARES E UTILIDADES:
-   - Sistemas de vapor: linhas, traps, condensado
-   - Água de resfriamento: entrada/retorno
-   - Ar de instrumentos: distribuição, FRLs
-   - Nitrogen blanketing/inertização
-   - Sistemas de drenagem e ventilação
+4. AUXILIARY SYSTEMS AND UTILITIES:
+   - Steam systems: lines, traps, condensate
+   - Cooling water: supply/return
+   - Instrument air: distribution, FRLs
+   - Nitrogen blanketing/inerting
+   - Drainage and venting systems
    - Sample points
 
-5. MALHAS DE CONTROLE E AUTOMAÇÃO:
-   - Controles regulatórios: PID, cascata
-   - Intertravamentos de segurança (SIS)
-   - Alarmes: PAH, PAL, TAH, TAL, FAH, FAL, LAH, LAL
-   - Indicação local vs. sala de controle (símbolos ISA)
+5. CONTROL LOOPS AND AUTOMATION:
+   - Regulatory controls: PID, cascade
+   - Safety interlocks (SIS)
+   - Alarms: PAH, PAL, TAH, TAL, FAH, FAL, LAH, LAL
+   - Local indication vs. control room (ISA symbols)
 
-REGRAS PARA TAGS (CRÍTICO):
-- Equipamentos principais: P-101, T-201, V-301, E-401, R-501, C-601, K-701, F-801
-- Instrumentos seguir ISA: [variável][função]-[loop][sufixo]
-  * Exemplos: PT-101, FT-205A, LT-301, TT-401B, PI-9039, FCV-520
-- Numeração lógica por área/sistema (centenas: 100s, 200s, 300s, etc.)
-- Sufixos: A/B (redundância), -1/-2 (múltiplos), H/L (high/low)
+TAG RULES (CRITICAL):
+- Main equipment: P-101, T-201, V-301, E-401, R-501, C-601, K-701, F-801
+- Instruments follow ISA: [variable][function]-[loop][suffix]
+  * Examples: PT-101, FT-205A, LT-301, TT-401B, PI-9039, FCV-520
+- Logical numbering by area/system (hundreds: 100s, 200s, 300s, etc.)
+- Suffixes: A/B (redundancy), -1/-2 (multiples), H/L (high/low)
 
-DISTRIBUIÇÃO ESPACIAL E LAYOUT:
+SPATIAL DISTRIBUTION AND LAYOUT:
 
-1. Coordenadas X (horizontal):
-   - Zona de entrada/alimentação: X = 100-300 mm
-   - Zona de processamento principal: X = 300-800 mm
-   - Zona de separação/purificação: X = 800-1000 mm
-   - Zona de saída/produto: X = 1000-1100 mm
-   - Margem direita: deixar ~50-100 mm
+1. X Coordinates (horizontal):
+   - Feed/inlet zone: X = 100-300 mm
+   - Main processing zone: X = 300-800 mm
+   - Separation/purification zone: X = 800-1000 mm
+   - Product/outlet zone: X = 1000-1100 mm
+   - Right margin: leave ~50-100 mm
 
-2. Coordenadas Y (vertical):
-   - Equipamentos principais: Y = 300-600 mm (centro)
-   - Instrumentos e válvulas: Y = 250-400 mm (próximo aos equipamentos)
-   - Linhas auxiliares superiores: Y = 600-750 mm
-   - Linhas auxiliares inferiores: Y = 150-250 mm
-   - Manter margem superior/inferior: ~50-100 mm
+2. Y Coordinates (vertical):
+   - Main equipment: Y = 300-600 mm (center)
+   - Instruments and valves: Y = 250-400 mm (near equipment)
+   - Upper auxiliary lines: Y = 600-750 mm
+   - Lower auxiliary lines: Y = 150-250 mm
+   - Maintain top/bottom margins: ~50-100 mm
 
-3. Espaçamento:
-   - Entre equipamentos principais: mínimo 100-150 mm
-   - Entre instrumentos: mínimo 30-50 mm
-   - Evitar sobreposições
+3. Spacing:
+   - Between main equipment: minimum 100-150 mm
+   - Between instruments: minimum 30-50 mm
+   - Avoid overlaps
 
-CONEXÕES DE PROCESSO (from/to):
-- Definir fluxo lógico do processo
-- "from": equipamento/instrumento de origem
-- "to": equipamento/instrumento de destino
-- Use TAGs para referências
-- Se terminal, use "N/A"
+**CRITICAL RULE FOR COORDINATES:**
+- Coordinates (x_mm, y_mm) must ALWAYS reference the CENTER/MIDDLE of the equipment or instrument
+- DO NOT consider piping, process lines, or other auxiliary elements when defining coordinates
+- Only equipment (P-XXX, T-XXX, E-XXX, etc.) and instruments (FT-XXX, PT-XXX, etc.) should have coordinates
 
-COMPLETUDE E DETALHAMENTO:
-- Gere um P&ID COMPLETO com TODOS os equipamentos necessários para o processo
-- Inclua TODA instrumentação de controle, monitoramento e segurança
-- Não omita equipamentos auxiliares: bombas reserva, filtros, válvulas manuais
-- Inclua elementos de segurança: PSVs, alarmes, intertravamentos
-- Adicione instrumentação redundante onde crítico
-- Considere utilidades necessárias (vapor, água, ar, etc.)
+PROCESS CONNECTIONS (from/to):
+- Define logical process flow
+- "from": source equipment/instrument
+- "to": destination equipment/instrument
+- Use TAGs for references
+- If terminal, use "N/A"
+- Remember: coordinates should be at equipment/instrument centers, not piping
+
+COMPLETENESS AND DETAIL:
+- Generate a COMPLETE P&ID with ALL necessary equipment for the process
+- Include ALL control, monitoring, and safety instrumentation
+- Do not omit auxiliary equipment: spare pumps, filters, manual valves
+- Include safety elements: PSVs, alarms, interlocks
+- Add redundant instrumentation where critical
+- Consider necessary utilities (steam, water, air, etc.)
 
 
-FORMATO DE SAÍDA (JSON):
+OUTPUT FORMAT (JSON):
 [
   {{
     "tag": "T-101",
-    "descricao": "Tanque de Alimentação",
+    "descricao": "Feed Tank",
     "x_mm": 150.0,
     "y_mm": 450.0,
     "from": "N/A",
@@ -799,7 +808,7 @@ FORMATO DE SAÍDA (JSON):
   }},
   {{
     "tag": "P-101",
-    "descricao": "Bomba de Alimentação Centrífuga",
+    "descricao": "Centrifugal Feed Pump",
     "x_mm": 250.0,
     "y_mm": 400.0,
     "from": "T-101",
@@ -807,7 +816,7 @@ FORMATO DE SAÍDA (JSON):
   }},
   {{
     "tag": "FT-101",
-    "descricao": "Transmissor de Vazão",
+    "descricao": "Flow Transmitter",
     "x_mm": 280.0,
     "y_mm": 380.0,
     "from": "P-101",
@@ -815,7 +824,7 @@ FORMATO DE SAÍDA (JSON):
   }},
   {{
     "tag": "FCV-101",
-    "descricao": "Válvula de Controle de Vazão",
+    "descricao": "Flow Control Valve",
     "x_mm": 320.0,
     "y_mm": 380.0,
     "from": "FT-101",
@@ -823,7 +832,7 @@ FORMATO DE SAÍDA (JSON):
   }},
   {{
     "tag": "PT-102",
-    "descricao": "Transmissor de Pressão",
+    "descricao": "Pressure Transmitter",
     "x_mm": 270.0,
     "y_mm": 420.0,
     "from": "P-101",
@@ -831,13 +840,14 @@ FORMATO DE SAÍDA (JSON):
   }}
 ]
 
-IMPORTANTE:
-- Retorne SOMENTE o array JSON, sem texto adicional, markdown ou explicações
-- Coordenadas devem estar dentro dos limites: X: 0-{width_mm}, Y: 0-{height_mm}
-- Gere um diagrama COMPLETO e REALISTA para o processo especificado
-- Inclua TODOS os elementos essenciais: equipamentos, instrumentação, válvulas, controles
-- Use boas práticas de engenharia: redundância em sistemas críticos, instrumentação adequada
-- Siga rigorosamente as normas ISA S5.1 para nomenclatura
+IMPORTANT:
+- Return ONLY the JSON array, without additional text, markdown, or explanations
+- Coordinates must be within limits: X: 0-{width_mm}, Y: 0-{height_mm}
+- Coordinates must reference the CENTER of equipment and instruments (not piping)
+- This is an educational example to demonstrate P&ID concepts and ISA standards
+- Include ALL typical essential elements: equipment, instrumentation, valves, controls
+- Use engineering best practices: redundancy in critical systems, adequate instrumentation
+- Strictly follow ISA S5.1 standards for nomenclature
 """
     return prompt.strip()
 
