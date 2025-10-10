@@ -681,5 +681,37 @@ async def generate_pid(
 # ============================================================
 if __name__ == "__main__":
     import uvicorn
-    port = int(os.getenv("PORT", "8000"))
-    uvicorn.run("backend:app", host="0.0.0.0", port=port, reload=True)
+    import socket
+    
+    # Try to get port from environment, default to 8000
+    default_port = int(os.getenv("PORT", "8000"))
+    
+    # List of ports to try if the default fails
+    ports_to_try = [default_port, 8001, 8002, 8003, 8080, 5000]
+    
+    # Remove duplicates while preserving order
+    ports_to_try = list(dict.fromkeys(ports_to_try))
+    
+    selected_port = None
+    for port in ports_to_try:
+        try:
+            # Try to bind to the port to check if it's available
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.bind(("0.0.0.0", port))
+                selected_port = port
+                break
+        except OSError as e:
+            if port == ports_to_try[-1]:
+                # This was the last port to try
+                print(f"❌ Não foi possível vincular a nenhuma porta. Último erro: {e}")
+                print(f"💡 Portas tentadas: {', '.join(map(str, ports_to_try))}")
+                print(f"💡 Solução: Especifique uma porta disponível usando PORT=<porta>")
+                print(f"   Exemplo Windows: set PORT=9000 && uvicorn backend:app --reload --port 9000")
+                print(f"   Exemplo Linux/Mac: PORT=9000 uvicorn backend:app --reload --port 9000")
+                raise
+            else:
+                print(f"⚠️  Porta {port} não disponível, tentando porta {ports_to_try[ports_to_try.index(port) + 1]}...")
+    
+    if selected_port:
+        print(f"✅ Iniciando servidor na porta {selected_port}")
+        uvicorn.run("backend:app", host="0.0.0.0", port=selected_port, reload=True)
