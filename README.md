@@ -153,3 +153,29 @@ set OPENAI_API_KEY=sua-chave-aqui
 # Linux/Mac
 export OPENAI_API_KEY=sua-chave-aqui
 ```
+
+### Erro de Certificado SSL (Certificate Verify Failed)
+
+**Problema:** Ao chamar a API da OpenAI, você recebe o erro:
+```
+SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: unable to get local issuer certificate
+```
+
+**Causa:** Problemas com certificados SSL no Windows, geralmente devido a:
+- Certificados corporativos/proxy
+- Certificados SSL desatualizados
+- Configuração de rede empresarial
+
+**Solução Automática:** O backend agora detecta automaticamente erros SSL e tenta novamente sem verificação SSL. Você verá mensagens como:
+```
+⚠️ Erro SSL detectado: [SSL: CERTIFICATE_VERIFY_FAILED]...
+🔄 Tentando novamente sem verificação SSL...
+```
+
+**Solução Manual (se necessário):** 
+1. Atualize o pacote `certifi`:
+   ```bash
+   pip install --upgrade certifi
+   ```
+
+2. Em ambientes corporativos, você pode precisar adicionar certificados personalizados ao Python. Consulte seu administrador de rede.

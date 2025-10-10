@@ -304,6 +304,8 @@ Se retornar coordenadas locais, **some a origem** e devolva coordenadas globais.
 # LLM CALL
 # ============================================================
 def llm_call(image_b64: str, prompt: str, prefer_model: str = PRIMARY_MODEL):
+    global client
+    
     if prefer_model == "gpt-5":
         try:
             resp = client.chat.completions.create(
@@ -319,7 +321,29 @@ def llm_call(image_b64: str, prompt: str, prefer_model: str = PRIMARY_MODEL):
             )
             return "gpt-5", resp
         except Exception as e:
-            log_to_front(f"⚠️ gpt-5 falhou: {e}")
+            # Check if it's an SSL error and retry without SSL verification
+            if "SSL" in str(e) or "certificate" in str(e).lower():
+                log_to_front(f"⚠️ gpt-5 falhou com erro SSL: {e}")
+                log_to_front("🔄 Tentando novamente sem verificação SSL...")
+                client = make_client(verify_ssl=False)
+                try:
+                    resp = client.chat.completions.create(
+                        model="gpt-5",
+                        messages=[{
+                            "role": "user",
+                            "content": [
+                                {"type": "text", "text": prompt},
+                                {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{image_b64}"}}
+                            ]
+                        }],
+                        timeout=OPENAI_REQUEST_TIMEOUT
+                    )
+                    return "gpt-5", resp
+                except Exception as e2:
+                    log_to_front(f"⚠️ gpt-5 falhou novamente: {e2}")
+            else:
+                log_to_front(f"⚠️ gpt-5 falhou: {e}")
+    
     try:
         resp = client.chat.completions.create(
             model=FALLBACK_MODEL,
@@ -335,9 +359,33 @@ def llm_call(image_b64: str, prompt: str, prefer_model: str = PRIMARY_MODEL):
         )
         return FALLBACK_MODEL, resp
     except Exception as e:
-        log_to_front(f"❌ Fallback {FALLBACK_MODEL} falhou: {e}")
-        traceback.print_exc()
-        raise
+        # Check if it's an SSL error and retry without SSL verification
+        if "SSL" in str(e) or "certificate" in str(e).lower():
+            log_to_front(f"❌ Fallback {FALLBACK_MODEL} falhou com erro SSL: {e}")
+            log_to_front("🔄 Tentando novamente sem verificação SSL...")
+            client = make_client(verify_ssl=False)
+            try:
+                resp = client.chat.completions.create(
+                    model=FALLBACK_MODEL,
+                    messages=[{
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": prompt},
+                            {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{image_b64}"}}
+                        ]
+                    }],
+                    temperature=0,
+                    timeout=OPENAI_REQUEST_TIMEOUT
+                )
+                return FALLBACK_MODEL, resp
+            except Exception as e2:
+                log_to_front(f"❌ Fallback {FALLBACK_MODEL} falhou novamente: {e2}")
+                traceback.print_exc()
+                raise
+        else:
+            log_to_front(f"❌ Fallback {FALLBACK_MODEL} falhou: {e}")
+            traceback.print_exc()
+            raise
 
 
 # ============================================================
@@ -590,15 +638,35 @@ async def generate_pid(
         
         # Chama LLM sem imagem (apenas texto)
         log_to_front("🤖 Chamando LLM para gerar equipamentos...")
-        resp = client.chat.completions.create(
-            model=FALLBACK_MODEL,  # usa gpt-4o para geração de texto
-            messages=[{
-                "role": "user",
-                "content": generation_prompt
-            }],
-            temperature=0.7,  # um pouco de criatividade
-            timeout=OPENAI_REQUEST_TIMEOUT
-        )
+        
+        global client
+        try:
+            resp = client.chat.completions.create(
+                model=FALLBACK_MODEL,  # usa gpt-4o para geração de texto
+                messages=[{
+                    "role": "user",
+                    "content": generation_prompt
+                }],
+                temperature=0.7,  # um pouco de criatividade
+                timeout=OPENAI_REQUEST_TIMEOUT
+            )
+        except Exception as e:
+            # Check if it's an SSL error and retry without SSL verification
+            if "SSL" in str(e) or "certificate" in str(e).lower():
+                log_to_front(f"⚠️ Erro SSL detectado: {e}")
+                log_to_front("🔄 Tentando novamente sem verificação SSL...")
+                client = make_client(verify_ssl=False)
+                resp = client.chat.completions.create(
+                    model=FALLBACK_MODEL,
+                    messages=[{
+                        "role": "user",
+                        "content": generation_prompt
+                    }],
+                    temperature=0.7,
+                    timeout=OPENAI_REQUEST_TIMEOUT
+                )
+            else:
+                raise
         
         raw = resp.choices[0].message.content if resp and resp.choices else ""
         log_to_front(f"📝 RAW GENERATION OUTPUT: {raw[:500]}")
