@@ -274,9 +274,10 @@ if generate_button and prompt_text:
                     
                     ax.set_xlim(0, 1189)
                     ax.set_ylim(0, 841)
+                    ax.invert_yaxis()  # Inverte Y para origem superior esquerda (0,0)
                     ax.set_xlabel("X (mm)")
                     ax.set_ylabel("Y (mm)")
-                    ax.set_title("Layout do P&ID Gerado (Folha A0)")
+                    ax.set_title("Layout do P&ID Gerado (Folha A0) - Origem: Topo Superior Esquerdo")
                     ax.grid(True, alpha=0.3)
                     ax.set_aspect('equal')
                     
