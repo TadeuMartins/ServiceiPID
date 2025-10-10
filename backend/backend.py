@@ -927,7 +927,6 @@ async def generate_pid(
             item = {
                 "tag": it.get("tag", "N/A"),
                 "descricao": it.get("descricao", "Equipamento"),
-                "tipo": it.get("tipo", ""),
                 "x_mm": x_in,
                 "y_mm": y_in,
                 "y_mm_cad": y_cad,
