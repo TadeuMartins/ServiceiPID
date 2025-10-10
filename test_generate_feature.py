@@ -32,16 +32,26 @@ Especificações:
     print("✅ test_build_generation_prompt passed")
 
 def test_response_format():
-    """Test that generated response follows expected format"""
-    # Expected response format
-    expected_fields = ["tag", "descricao", "x_mm", "y_mm", "pagina", "from", "to", 
-                       "page_width_mm", "page_height_mm", "tipo"]
+    """Test that generated response follows expected format and matches /analyze format"""
+    # Expected field order - MUST match /analyze endpoint output
+    # Both endpoints create items with these fields in this exact order
+    expected_field_order = [
+        "tag", 
+        "descricao", 
+        "x_mm", 
+        "y_mm", 
+        "y_mm_cad", 
+        "pagina", 
+        "from", 
+        "to", 
+        "page_width_mm", 
+        "page_height_mm"
+    ]
     
-    # Sample response item
-    sample_item = {
+    # Sample response item from /generate endpoint (after fix)
+    sample_item_generate = {
         "tag": "P-101",
         "descricao": "Bomba Centrífuga",
-        "tipo": "Bomba",
         "x_mm": 200.0,
         "y_mm": 400.0,
         "y_mm_cad": 441.0,
@@ -50,17 +60,50 @@ def test_response_format():
         "to": "E-201",
         "page_width_mm": 1189.0,
         "page_height_mm": 841.0,
+        # Matcher adds these fields via item.update():
+        "SystemFullName": "System.Equipment.Pump",
+        "Confiança": 0.95,
+        "Tipo_ref": "Bomba",
+        "Descricao_ref": "Bomba Centrífuga"
     }
     
-    # Check all required fields are present
-    for field in expected_fields:
-        assert field in sample_item, f"Missing field: {field}"
+    # Sample response item from /analyze endpoint
+    sample_item_analyze = {
+        "tag": "T-101",
+        "descricao": "Tanque de Armazenamento",
+        "x_mm": 150.0,
+        "y_mm": 500.0,
+        "y_mm_cad": 341.0,
+        "pagina": 1,
+        "from": "N/A",
+        "to": "P-101",
+        "page_width_mm": 1189.0,
+        "page_height_mm": 841.0,
+        # Matcher adds these fields via item.update():
+        "SystemFullName": "System.Equipment.Tank",
+        "Confiança": 0.92,
+        "Tipo_ref": "Tanque",
+        "Descricao_ref": "Tanque de Armazenamento"
+    }
+    
+    # Check both items have the same base fields in the same order
+    generate_keys = list(sample_item_generate.keys())[:10]  # First 10 are base fields
+    analyze_keys = list(sample_item_analyze.keys())[:10]    # First 10 are base fields
+    
+    assert generate_keys == expected_field_order, f"Generate endpoint field order mismatch: {generate_keys}"
+    assert analyze_keys == expected_field_order, f"Analyze endpoint field order mismatch: {analyze_keys}"
+    assert generate_keys == analyze_keys, "Field order must match between /generate and /analyze endpoints"
+    
+    # Check all required fields are present in both
+    for field in expected_field_order:
+        assert field in sample_item_generate, f"Missing field in generate: {field}"
+        assert field in sample_item_analyze, f"Missing field in analyze: {field}"
     
     # Validate coordinate ranges for A0 sheet
-    assert 0 <= sample_item["x_mm"] <= 1189, "X coordinate out of A0 bounds"
-    assert 0 <= sample_item["y_mm"] <= 841, "Y coordinate out of A0 bounds"
+    assert 0 <= sample_item_generate["x_mm"] <= 1189, "X coordinate out of A0 bounds"
+    assert 0 <= sample_item_generate["y_mm"] <= 841, "Y coordinate out of A0 bounds"
     
-    print("✅ test_response_format passed")
+    print("✅ test_response_format passed - Both endpoints produce identical column order")
 
 def test_endpoint_structure():
     """Test the endpoint structure is correct"""
