@@ -788,7 +788,6 @@ FORMATO DE SAÍDA (JSON):
 [
   {{
     "tag": "T-101",
-    "tipo": "Tanque",
     "descricao": "Tanque de Alimentação",
     "x_mm": 150.0,
     "y_mm": 450.0,
@@ -797,7 +796,6 @@ FORMATO DE SAÍDA (JSON):
   }},
   {{
     "tag": "P-101",
-    "tipo": "Bomba",
     "descricao": "Bomba de Alimentação Centrífuga",
     "x_mm": 250.0,
     "y_mm": 400.0,
@@ -806,7 +804,6 @@ FORMATO DE SAÍDA (JSON):
   }},
   {{
     "tag": "FT-101",
-    "tipo": "Instrumento",
     "descricao": "Transmissor de Vazão",
     "x_mm": 280.0,
     "y_mm": 380.0,
@@ -815,7 +812,6 @@ FORMATO DE SAÍDA (JSON):
   }},
   {{
     "tag": "FCV-101",
-    "tipo": "Válvula",
     "descricao": "Válvula de Controle de Vazão",
     "x_mm": 320.0,
     "y_mm": 380.0,
@@ -824,7 +820,6 @@ FORMATO DE SAÍDA (JSON):
   }},
   {{
     "tag": "PT-102",
-    "tipo": "Instrumento",
     "descricao": "Transmissor de Pressão",
     "x_mm": 270.0,
     "y_mm": 420.0,
