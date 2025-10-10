@@ -10,7 +10,7 @@ import pickle
 # Config OpenAI
 OPENAI_API_KEY = os.getenv(
     "OPENAI_API_KEY",
-    "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"  # ⚠️ use env var em produção
+    "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"  # ⚠️ use env var em produção
 )
 OPENAI_REQUEST_TIMEOUT = int(os.getenv("OPENAI_REQUEST_TIMEOUT", "600"))
 
@@ -113,3 +113,4 @@ def match_system_fullname(tag: str, descricao: str, tipo: str = "") -> dict:
             "Descricao_ref": descricao or "N/A",
             "matcher_error": str(e)
         }
+
