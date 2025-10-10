@@ -265,41 +265,123 @@ def build_prompt(width_mm: float, height_mm: float, scope: str = "global", origi
         width_mm, height_mm = height_mm, width_mm
 
     base = f"""
-Você é especialista em diagramas P&ID e símbolos ISA.
-Analise a imagem com tamanho {width_mm} mm (X) x {height_mm} mm (Y).
-Sempre considere:
-- Eixo X = {width_mm} mm (maior dimensão).
-- Eixo Y = {height_mm} mm (menor dimensão).
+Você é um engenheiro especialista em diagramas P&ID (Piping and Instrumentation Diagram) e símbolos ISA S5.1/S5.2/S5.3.
 
-Extraia todos os símbolos, instrumentos, válvulas e equipamentos, seguindo estas regras:
-- Inclua também símbolos sem TAG (use "tag": "N/A").
-- Para instrumentos e válvulas:
-  - Sempre junte prefixo + número, mesmo que apareçam separados no símbolo.
-  - Exemplos: "PI 9039", "LT 101", "FV-2001".
-- Use nomenclatura ISA correta para "descricao".
-- Inclua conexões de processo ("from", "to").
-- Coordenadas devem estar em **sistema global** da página.
-- A saída deve conter somente JSON.
+ANÁLISE DE FLUXOGRAMA DE PROCESSO - ESPECIFICAÇÕES TÉCNICAS:
+- Dimensões da página: {width_mm} mm (X - eixo horizontal) x {height_mm} mm (Y - eixo vertical)
+- Sistema de coordenadas: ABSOLUTO e GLOBAL da página completa
+- Orientação: X crescente da esquerda para direita, Y crescente de baixo para cima
+- Compatibilidade: COMOS (Siemens) - coordenadas globais obrigatórias
 
-Formato esperado:
+OBJETIVO: Extrair TODOS os elementos do fluxograma de processo com máxima precisão técnica.
+
+EQUIPAMENTOS A IDENTIFICAR (lista não exaustiva):
+1. Equipamentos principais:
+   - Bombas (centrífugas, alternativas, de vácuo): P-XXX
+   - Tanques (armazenamento, pulmão, surge): T-XXX, TK-XXX
+   - Vasos (separadores, flash drums, acumuladores): V-XXX, D-XXX
+   - Trocadores de calor (casco-tubo, placas, ar): E-XXX, HE-XXX
+   - Reatores (CSTR, PFR, batelada): R-XXX
+   - Fornos e caldeiras: F-XXX, H-XXX, B-XXX
+   - Compressores e turboexpansores: C-XXX, K-XXX
+   - Torres (destilação, absorção, stripper): C-XXX, T-XXX
+   - Ciclones e separadores: CY-XXX, S-XXX
+   - Filtros e peneiras: FL-XXX, SC-XXX
+   - Secadores, evaporadores, cristalizadores
+   - Misturadores, agitadores, homogeneizadores
+
+2. Instrumentos de medição (nomenclatura ISA):
+   - Pressão: PI (indicador), PT (transmissor), PG (gauge), PS (switch), PCV (válvula controle)
+   - Temperatura: TI, TT, TE (elemento), TW (poço termométrico), TCV
+   - Vazão: FI, FT, FE (elemento primário), FQ (totalizador), FCV
+   - Nível: LI, LT, LG (visor), LS (switch), LCV
+   - Análise: AI, AT (analisador), AQ (qualidade)
+   - Densidade/Viscosidade: DI, DT, VI, VT
+   - pH/Condutividade: QI, QT, CI, CT
+   - Velocidade/Rotação: SI, ST
+
+3. Válvulas e dispositivos de controle:
+   - Válvulas de controle: FCV, PCV, LCV, TCV (pneumáticas, motorizadas)
+   - Válvulas manuais: gate, globe, ball, butterfly, check, plug
+   - Válvulas de segurança/alívio: PSV, PRV, TSV
+   - Válvulas solenoides, diafragma
+   - Atuadores: pneumáticos, elétricos, hidráulicos
+
+4. Tubulações e conexões:
+   - Linhas de processo (principais, auxiliares, utilidades)
+   - Conexões: flanges, uniões, derivações
+   - Elementos especiais: redutores, expansores, curvas
+
+5. Outros elementos:
+   - Instrumentos locais vs. sala de controle (ISA)
+   - Malhas de controle (PID, cascata, feedforward)
+   - Sistemas de intertravamento e segurança
+   - Símbolos auxiliares (drenos, vents, samplers)
+
+REGRAS CRÍTICAS PARA EXTRAÇÃO:
+
+1. COORDENADAS GLOBAIS (CRÍTICO PARA COMOS):
+   - SEMPRE retorne coordenadas X e Y em relação ao TOTAL da página ({width_mm} x {height_mm} mm)
+   - Mesmo em análise de quadrantes, as coordenadas devem ser GLOBAIS
+   - X: 0.0 (extrema esquerda) até {width_mm} (extrema direita)
+   - Y: 0.0 (base da página) até {height_mm} (topo da página)
+   - Precisão: até 0.1 mm
+
+2. TAGS E IDENTIFICAÇÃO:
+   - Capture TAGs completas mesmo se prefixo e número estiverem separados visualmente
+   - Exemplos: "PI 9039", "LT 101", "FV-2001", "P 101 A/B"
+   - Se não houver TAG visível, use "tag": "N/A" mas capture o equipamento
+   - Inclua sufixos importantes: A/B (redundância), -1/-2 (numeração)
+
+3. DESCRIÇÕES (nomenclatura ISA S5.1):
+   - Use terminologia técnica precisa segundo ISA
+   - Exemplos: "Transmissor de Pressão", "Válvula de Controle de Vazão", "Bomba Centrífuga"
+   - Especifique tipo quando visível: "Trocador de Calor Casco-Tubo", "Válvula Globo"
+
+4. CONEXÕES DE PROCESSO (from/to):
+   - Identifique fluxo do processo: equipamento de origem → equipamento de destino
+   - Use TAGs dos equipamentos conectados
+   - Se não houver conexão clara, use "N/A"
+   - Exemplo: "from": "T-101", "to": "P-201"
+
+5. COMPLETUDE:
+   - Extraia TODOS os símbolos visíveis, mesmo sem TAG
+   - Não omita instrumentos pequenos ou auxiliares
+   - Capture válvulas manuais, drenos, vents, samplers
+   - Inclua símbolos parcialmente visíveis (estimando coordenadas)
+
+FORMATO DE SAÍDA (JSON OBRIGATÓRIO):
 [
   {{
-    "tag": "PI 9039",
+    "tag": "P-101",
+    "descricao": "Bomba Centrífuga",
+    "x_mm": 234.5,
+    "y_mm": 567.8,
+    "from": "T-101",
+    "to": "E-201"
+  }},
+  {{
+    "tag": "PI-9039",
     "descricao": "Indicador de Pressão",
-    "x_mm": 120.5,
-    "y_mm": 450.7,
-    "from": "Bomba P-101",
-    "to": "Válvula FV-202"
+    "x_mm": 245.2,
+    "y_mm": 555.3,
+    "from": "P-101",
+    "to": "N/A"
   }}
 ]
 """
     if scope == "quadrant":
         ox, oy = origin
         base += f"""
-Quadrant {quad_label}: origem global ≈ ({ox}, {oy}) mm.
-Se retornar coordenadas locais, **some a origem** e devolva coordenadas globais.
+
+ATENÇÃO - ANÁLISE DE QUADRANTE {quad_label}:
+- Este é o quadrante {quad_label} da página completa
+- Origem do quadrante no sistema global: X={ox} mm, Y={oy} mm
+- IMPORTANTE: Retorne coordenadas GLOBAIS, NÃO coordenadas locais do quadrante
+- Se você calcular coordenadas locais do quadrante, SOME a origem: X_global = X_local + {ox}, Y_global = Y_local + {oy}
+- As coordenadas finais devem estar entre X: 0-{width_mm} e Y: 0-{height_mm} (sistema global da página)
 """
-    base += "Regras finais: saída obrigatória em JSON (lista)."
+    base += "\n\nRETORNE SOMENTE O ARRAY JSON. Não inclua texto adicional, markdown ou explicações."
     return base.strip()
 
 
@@ -560,58 +642,204 @@ async def analyze_pdf(
 # ============================================================
 def build_generation_prompt(process_description: str, width_mm: float = 1189.0, height_mm: float = 841.0) -> str:
     """
-    Constrói prompt para gerar P&ID completo a partir de descrição do processo.
+    Constrói prompt técnico e detalhado para gerar P&ID completo a partir de descrição do processo.
     A0 sheet dimensions: 1189mm x 841mm (landscape)
     """
     prompt = f"""
-Você é um especialista em diagramas P&ID (Piping and Instrumentation Diagram) e símbolos ISA.
+Você é um engenheiro de processos sênior especializado em elaboração de diagramas P&ID (Piping and Instrumentation Diagram) 
+segundo normas ISA S5.1, S5.2, S5.3 e boas práticas de engenharia de processos industriais.
 
-Tarefa: Gere um P&ID completo para o seguinte processo:
+TAREFA: Desenvolver um P&ID COMPLETO e DETALHADO para o seguinte processo:
 "{process_description}"
 
-Especificações:
-- Folha A0 em formato paisagem: {width_mm} mm (X) x {height_mm} mm (Y)
-- Distribua equipamentos e instrumentos de forma lógica e organizada
-- Use coordenadas X e Y apropriadas dentro dos limites da folha
-- Inclua equipamentos principais (bombas, tanques, vasos, trocadores de calor, etc.)
-- Inclua instrumentos de controle e medição (sensores de pressão, temperatura, vazão, nível, válvulas de controle, etc.)
-- Use nomenclatura ISA correta para tags e descrições
-- Defina conexões lógicas de processo (from/to) entre equipamentos
+ESPECIFICAÇÕES TÉCNICAS DO DIAGRAMA:
+- Folha: A0 formato paisagem (landscape)
+- Dimensões: {width_mm} mm (largura/X) x {height_mm} mm (altura/Y)
+- Sistema de coordenadas: X crescente da esquerda para direita, Y crescente de baixo para cima
+- Layout: Fluxo do processo da esquerda (entrada) para direita (saída)
+- Compatibilidade: COMOS (Siemens) - coordenadas absolutas
 
-Regras para TAGs:
-- Equipamentos: use prefixos como P (bomba), T (tanque), V (vaso), E (trocador), R (reator), etc. seguido de número (ex: P-101, T-201)
-- Instrumentos: use nomenclatura ISA (ex: PI-101 para Indicador de Pressão, TT-201 para Transmissor de Temperatura)
-- Válvulas de controle: FV, PV, LV, TV (ex: FV-101 para Válvula de Controle de Vazão)
+REQUISITOS DE PROJETO - EQUIPAMENTOS PRINCIPAIS:
 
-Formato de saída: JSON com lista de equipamentos e instrumentos
+1. EQUIPAMENTOS DE PROCESSO (incluir conforme aplicável ao processo):
+   - Bombas: P-101, P-102, etc. (centrífugas, alternativas, de vácuo)
+     * Especificar: tipo, capacidade nominal, redundância (A/B se aplicável)
+   - Tanques de armazenamento: T-101, TK-101, etc.
+     * Incluir: indicadores de nível, válvulas de entrada/saída, vents, drenos
+   - Vasos de processo: V-101, D-101 (separadores, flash drums, acumuladores)
+     * Incluir: controles de pressão, nível, temperatura
+   - Trocadores de calor: E-101, E-102, HE-101 (casco-tubo, placas, resfriadores a ar)
+     * Incluir: instrumentação em ambos os lados (processo e utilidade)
+   - Reatores: R-101, R-102 (CSTR, PFR, batelada)
+     * Incluir: agitação, controle de temperatura, pressão, instrumentação analítica
+   - Torres: C-101, T-101 (destilação, absorção, stripping)
+     * Incluir: condensadores, refervedores, pratos/recheio, refluxo
+   - Compressores/Sopradores: K-101, C-101
+     * Incluir: sistemas de lubrificação, resfriamento, anti-surge
+   - Fornos/Caldeiras: F-101, H-101, B-101
+     * Incluir: controles de combustão, temperatura, pressão
+   - Filtros/Separadores: FL-101, S-101, CY-101
+   - Secadores/Evaporadores: DR-101, EV-101
 
-Exemplo de saída esperada:
+2. INSTRUMENTAÇÃO COMPLETA (nomenclatura ISA S5.1):
+
+   Pressão:
+   - PI: Indicadores de pressão (manômetros locais)
+   - PT: Transmissores de pressão (4-20mA para DCS/SDCD)
+   - PG: Pressure gauges
+   - PS/PSH/PSL: Switches (alarmes alto/baixo)
+   - PCV: Válvulas de controle de pressão
+   - PSV/PRV: Válvulas de segurança/alívio
+
+   Temperatura:
+   - TI: Indicadores de temperatura
+   - TT: Transmissores de temperatura (termopares, RTDs)
+   - TE: Elementos primários (poços termométricos)
+   - TS/TSH/TSL: Switches de temperatura
+   - TCV: Válvulas de controle de temperatura
+
+   Vazão:
+   - FI: Indicadores de vazão
+   - FT: Transmissores de vazão
+   - FE: Elementos primários (orifício, venturi, turbina, magnético, Coriolis)
+   - FQ: Totalizadores
+   - FS: Switches de vazão
+   - FCV: Válvulas de controle de vazão
+
+   Nível:
+   - LI: Indicadores de nível
+   - LT: Transmissores de nível (radar, ultrassônico, pressão diferencial)
+   - LG: Visores de nível (gauge glass)
+   - LS/LSH/LSL/LSHH/LSLL: Switches de nível (múltiplos níveis)
+   - LCV: Válvulas de controle de nível
+
+   Análise e qualidade:
+   - AI/AT: Analisadores (pH, condutividade, O2, etc.)
+   - QI/QT: Indicadores/transmissores de qualidade
+   - Analisadores específicos: pH, condutividade, turbidez, concentração, cromatografia
+
+3. VÁLVULAS E ATUADORES:
+   - Válvulas de controle: FCV, PCV, LCV, TCV (com atuadores pneumáticos/elétricos)
+   - Válvulas manuais: gate, globe, ball, butterfly, check, plug
+   - Válvulas de segurança: PSV, TSV, PRV
+   - Válvulas especiais: solenoides, diafragma, pinch
+   - Indicar: tipo de atuador (pneumático, elétrico, hidráulico)
+   - Indicar: ação na falha (FC - fail close, FO - fail open, FL - fail last)
+
+4. SISTEMAS AUXILIARES E UTILIDADES:
+   - Sistemas de vapor: linhas, traps, condensado
+   - Água de resfriamento: entrada/retorno
+   - Ar de instrumentos: distribuição, FRLs
+   - Nitrogen blanketing/inertização
+   - Sistemas de drenagem e ventilação
+   - Sample points
+
+5. MALHAS DE CONTROLE E AUTOMAÇÃO:
+   - Controles regulatórios: PID, cascata
+   - Intertravamentos de segurança (SIS)
+   - Alarmes: PAH, PAL, TAH, TAL, FAH, FAL, LAH, LAL
+   - Indicação local vs. sala de controle (símbolos ISA)
+
+REGRAS PARA TAGS (CRÍTICO):
+- Equipamentos principais: P-101, T-201, V-301, E-401, R-501, C-601, K-701, F-801
+- Instrumentos seguir ISA: [variável][função]-[loop][sufixo]
+  * Exemplos: PT-101, FT-205A, LT-301, TT-401B, PI-9039, FCV-520
+- Numeração lógica por área/sistema (centenas: 100s, 200s, 300s, etc.)
+- Sufixos: A/B (redundância), -1/-2 (múltiplos), H/L (high/low)
+
+DISTRIBUIÇÃO ESPACIAL E LAYOUT:
+
+1. Coordenadas X (horizontal):
+   - Zona de entrada/alimentação: X = 100-300 mm
+   - Zona de processamento principal: X = 300-800 mm
+   - Zona de separação/purificação: X = 800-1000 mm
+   - Zona de saída/produto: X = 1000-1100 mm
+   - Margem direita: deixar ~50-100 mm
+
+2. Coordenadas Y (vertical):
+   - Equipamentos principais: Y = 300-600 mm (centro)
+   - Instrumentos e válvulas: Y = 250-400 mm (próximo aos equipamentos)
+   - Linhas auxiliares superiores: Y = 600-750 mm
+   - Linhas auxiliares inferiores: Y = 150-250 mm
+   - Manter margem superior/inferior: ~50-100 mm
+
+3. Espaçamento:
+   - Entre equipamentos principais: mínimo 100-150 mm
+   - Entre instrumentos: mínimo 30-50 mm
+   - Evitar sobreposições
+
+CONEXÕES DE PROCESSO (from/to):
+- Definir fluxo lógico do processo
+- "from": equipamento/instrumento de origem
+- "to": equipamento/instrumento de destino
+- Use TAGs para referências
+- Se terminal, use "N/A"
+
+COMPLETUDE E DETALHAMENTO:
+- Gere um P&ID COMPLETO com TODOS os equipamentos necessários para o processo
+- Inclua TODA instrumentação de controle, monitoramento e segurança
+- Não omita equipamentos auxiliares: bombas reserva, filtros, válvulas manuais
+- Inclua elementos de segurança: PSVs, alarmes, intertravamentos
+- Adicione instrumentação redundante onde crítico
+- Considere utilidades necessárias (vapor, água, ar, etc.)
+- MÍNIMO ESPERADO: 15-30 equipamentos/instrumentos para processo simples, 30-80 para processo completo
+
+FORMATO DE SAÍDA (JSON):
 [
+  {{
+    "tag": "T-101",
+    "tipo": "Tanque",
+    "descricao": "Tanque de Alimentação",
+    "x_mm": 150.0,
+    "y_mm": 450.0,
+    "from": "N/A",
+    "to": "P-101"
+  }},
   {{
     "tag": "P-101",
     "tipo": "Bomba",
-    "descricao": "Bomba Centrífuga",
-    "x_mm": 200.0,
+    "descricao": "Bomba de Alimentação Centrífuga",
+    "x_mm": 250.0,
     "y_mm": 400.0,
     "from": "T-101",
     "to": "E-201"
   }},
   {{
-    "tag": "PI-101",
+    "tag": "FT-101",
     "tipo": "Instrumento",
-    "descricao": "Indicador de Pressão",
-    "x_mm": 250.0,
+    "descricao": "Transmissor de Vazão",
+    "x_mm": 280.0,
     "y_mm": 380.0,
+    "from": "P-101",
+    "to": "FCV-101"
+  }},
+  {{
+    "tag": "FCV-101",
+    "tipo": "Válvula",
+    "descricao": "Válvula de Controle de Vazão",
+    "x_mm": 320.0,
+    "y_mm": 380.0,
+    "from": "FT-101",
+    "to": "E-201"
+  }},
+  {{
+    "tag": "PT-102",
+    "tipo": "Instrumento",
+    "descricao": "Transmissor de Pressão",
+    "x_mm": 270.0,
+    "y_mm": 420.0,
     "from": "P-101",
     "to": "N/A"
   }}
 ]
 
-Importante:
-- Retorne SOMENTE o JSON (lista de objetos)
-- Distribua os equipamentos de forma que o fluxo do processo seja claro (entrada à esquerda, saída à direita)
-- Posicione instrumentos próximos aos equipamentos que monitoram
-- Garanta que todas as coordenadas estejam dentro dos limites: X entre 0 e {width_mm}, Y entre 0 e {height_mm}
+IMPORTANTE:
+- Retorne SOMENTE o array JSON, sem texto adicional, markdown ou explicações
+- Coordenadas devem estar dentro dos limites: X: 0-{width_mm}, Y: 0-{height_mm}
+- Gere um diagrama COMPLETO e REALISTA para o processo especificado
+- Inclua TODOS os elementos essenciais: equipamentos, instrumentação, válvulas, controles
+- Use boas práticas de engenharia: redundância em sistemas críticos, instrumentação adequada
+- Siga rigorosamente as normas ISA S5.1 para nomenclatura
 """
     return prompt.strip()
 
