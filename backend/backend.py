@@ -12,7 +12,6 @@ import io
 
 import fitz  # PyMuPDF
 import httpx, certifi
-from dotenv import load_dotenv
 
 from fastapi import FastAPI, UploadFile, Query
 from fastapi import HTTPException
@@ -22,13 +21,14 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from openai import OpenAI
 from system_matcher import match_system_fullname
 
-# Load environment variables from .env file
-load_dotenv()
 
 # =================================================
-# 🔑 CONFIG OPENAI
+# 🔑 CONFIG OPENAI (público)
 # =================================================
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+OPENAI_API_KEY = os.getenv(
+    "OPENAI_API_KEY",
+    "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"  # ⚠️ defina por env var em produção
+)
 PRIMARY_MODEL = os.getenv("PRIMARY_MODEL", "gpt-5")
 FALLBACK_MODEL = os.getenv("FALLBACK_MODEL", "gpt-4o")
 OPENAI_REQUEST_TIMEOUT = int(os.getenv("OPENAI_REQUEST_TIMEOUT", "600"))
@@ -39,9 +39,6 @@ def make_client(verify_ssl: bool = True) -> OpenAI:
         verify=certifi.where() if verify_ssl else False,
         timeout=OPENAI_REQUEST_TIMEOUT,
     )
-    # Only create client if API key is set
-    if not OPENAI_API_KEY:
-        return None
     return OpenAI(api_key=OPENAI_API_KEY, http_client=http_client)
 
 
@@ -90,8 +87,8 @@ def get_progress():
 # ============================================================
 @app.on_event("startup")
 async def startup_event():
-    if not OPENAI_API_KEY:
-        log_to_front("❌ OPENAI_API_KEY não definido. Configure a chave no arquivo .env")
+    if not OPENAI_API_KEY or OPENAI_API_KEY == "COLOQUE_SUA_CHAVE_AQUI":
+        log_to_front("❌ OPENAI_API_KEY não definido.")
         return
     try:
         models = client.models.list()
@@ -435,8 +432,8 @@ async def analyze_pdf(
     grid: int = Query(3, ge=1, le=6),
     tol_mm: float = Query(10.0, ge=1.0, le=50.0)
 ):
-    if not OPENAI_API_KEY:
-        raise HTTPException(status_code=400, detail="OPENAI_API_KEY não definida. Configure a chave no arquivo .env")
+    if not OPENAI_API_KEY or OPENAI_API_KEY == "COLOQUE_SUA_CHAVE_AQUI":
+        raise HTTPException(status_code=400, detail="Defina OPENAI_API_KEY.")
 
     data = await file.read()
     if not data:
@@ -623,8 +620,8 @@ async def generate_pid(
     """
     Gera P&ID a partir de descrição em linguagem natural.
     """
-    if not OPENAI_API_KEY:
-        raise HTTPException(status_code=400, detail="OPENAI_API_KEY não definida. Configure a chave no arquivo .env")
+    if not OPENAI_API_KEY or OPENAI_API_KEY == "COLOQUE_SUA_CHAVE_AQUI":
+        raise HTTPException(status_code=400, detail="Defina OPENAI_API_KEY.")
     
     if not prompt or len(prompt.strip()) < 10:
         raise HTTPException(status_code=400, detail="Prompt muito curto. Descreva o processo com mais detalhes.")

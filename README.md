@@ -37,19 +37,15 @@ Este projeto é um **aplicativo web** para análise de diagramas P&ID usando **A
 ## Como rodar
 
 ### Pré-requisitos
-1. Configure a chave de API da OpenAI criando um arquivo `.env`:
-   
-   Copie o arquivo de exemplo:
+1. Configure a chave de API da OpenAI:
    ```bash
-   cp .env.example .env
+   export OPENAI_API_KEY="sua-chave-aqui"
    ```
    
-   Depois edite o arquivo `.env` e adicione sua chave OpenAI:
+   Ou no Windows:
+   ```cmd
+   set OPENAI_API_KEY=sua-chave-aqui
    ```
-   OPENAI_API_KEY=sua-chave-openai-aqui
-   ```
-   
-   **Nota:** O arquivo `.env` será automaticamente carregado pela aplicação e não deve ser commitado no repositório (já está no `.gitignore`).
 
 ### Iniciando o backend
 2. Instale dependências e rode o backend:
@@ -148,16 +144,15 @@ uvicorn backend:app --reload --port 9000
 
 ### Erro de API Key da OpenAI
 
-Se você receber erros relacionados à API key da OpenAI:
+Se você receber erros relacionados à API key da OpenAI, certifique-se de configurar a variável de ambiente:
 
-1. **Verifique se o arquivo `.env` existe** na raiz do projeto
-2. **Certifique-se de que a chave está correta** no arquivo `.env`:
-   ```
-   OPENAI_API_KEY=sua-chave-openai-aqui
-   ```
-3. **Reinicie o servidor** após modificar o arquivo `.env`
+```bash
+# Windows
+set OPENAI_API_KEY=sua-chave-aqui
 
-O arquivo `.env` é carregado automaticamente pelo backend usando `python-dotenv`.
+# Linux/Mac
+export OPENAI_API_KEY=sua-chave-aqui
+```
 
 ### Erro de Certificado SSL (Certificate Verify Failed)
 
