@@ -57,7 +57,7 @@ Todas as funcionalidades solicitadas foram implementadas com sucesso!
 **Adições:**
 1. `pid_knowledge_base` - Base de conhecimento (linha ~68)
 2. `generate_process_description()` - Gera descrição (linha ~1023)
-3. Endpoint `POST /describe` (linha ~1116)
+3. Endpoint `GET /describe` (linha ~1116)
 4. Endpoint `POST /chat` (linha ~1143)
 5. Endpoint `POST /store` (linha ~1210)
 6. Endpoint `GET /knowledge-base` (linha ~1233)

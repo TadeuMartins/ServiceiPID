@@ -35,7 +35,7 @@ Esta implementação adiciona duas funcionalidades principais ao P&ID Digitalize
 
 #### 3. Novos Endpoints API
 
-##### POST `/describe`
+##### GET `/describe`
 **Parâmetros:**
 - `pid_id`: ID do P&ID armazenado
 
@@ -343,7 +343,7 @@ st.session_state.process_description  # String com descrição completa
 
 - [x] Criar base de conhecimento (pid_knowledge_base)
 - [x] Implementar generate_process_description()
-- [x] Criar endpoint POST /describe
+- [x] Criar endpoint GET /describe
 - [x] Criar endpoint POST /chat
 - [x] Criar endpoint POST /store
 - [x] Criar endpoint GET /knowledge-base

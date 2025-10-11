@@ -31,7 +31,7 @@ def generate_process_description(pid_data: List[Dict[str, Any]]) -> str:
 #### `/describe` - Generate Description
 ```python
 # Line ~1116
-@app.post("/describe")
+@app.get("/describe")
 async def describe_pid(pid_id: str = Query(...)):
     """
     Gera uma descrição completa do P&ID baseada na base de conhecimento.
