@@ -111,6 +111,7 @@ if uploaded_file:
                         if desc_response.status_code == 200:
                             desc_data = desc_response.json()
                             st.session_state.process_description = desc_data.get("description", "")
+                            st.success("✅ Descrição do processo gerada! Chatbot ativado para perguntas.")
                     except:
                         pass
 
@@ -128,6 +129,8 @@ if uploaded_file:
                 if st.session_state.process_description:
                     with st.expander("📝 Descrição Completa do Processo", expanded=True):
                         st.markdown(st.session_state.process_description)
+                        st.markdown("---")
+                        st.info("💡 **Dica:** Role para baixo para usar o chatbot e fazer perguntas específicas sobre este P&ID!")
 
                 # ======== KPIs ========
                 st.subheader("📊 Resumo da Análise")
@@ -249,6 +252,7 @@ if generate_button and prompt_text:
                         if desc_response.status_code == 200:
                             desc_data = desc_response.json()
                             st.session_state.process_description = desc_data.get("description", "")
+                            st.success("✅ Descrição do processo gerada! Chatbot ativado para perguntas.")
                     except:
                         pass
 
@@ -266,6 +270,8 @@ if generate_button and prompt_text:
                 if st.session_state.process_description:
                     with st.expander("📝 Descrição Completa do Processo", expanded=True):
                         st.markdown(st.session_state.process_description)
+                        st.markdown("---")
+                        st.info("💡 **Dica:** Role para baixo para usar o chatbot e fazer perguntas específicas sobre este P&ID!")
 
                 # ======== KPIs ========
                 st.subheader("📊 Resumo da Geração")
@@ -358,12 +364,15 @@ elif generate_button and not prompt_text:
 # ============================================================
 if st.session_state.pid_id:
     st.markdown("---")
+    st.markdown("") # Adiciona espaçamento
     
     # Container para o chatbot com opção de minimizar
     chatbot_col1, chatbot_col2 = st.columns([6, 1])
     
     with chatbot_col1:
         st.markdown("### 💬 Assistente P&ID - Faça perguntas sobre este diagrama")
+        if st.session_state.show_chatbot:
+            st.markdown("*Chatbot ativado! Faça perguntas sobre o processo analisado.*")
     
     with chatbot_col2:
         if st.button("🔽 Minimizar" if st.session_state.show_chatbot else "🔼 Expandir", key="toggle_chatbot"):
