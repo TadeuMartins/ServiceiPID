@@ -356,7 +356,7 @@ elif generate_button and not prompt_text:
 # ============================================================
 # CHATBOT MINIMIZÁVEL
 # ============================================================
-if st.session_state.pid_id and st.session_state.show_chatbot:
+if st.session_state.pid_id:
     st.markdown("---")
     
     # Container para o chatbot com opção de minimizar
