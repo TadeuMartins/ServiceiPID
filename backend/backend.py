@@ -1119,7 +1119,7 @@ Seja técnico e específico, usando terminologia da engenharia de processos."""
         return f"Erro ao gerar descrição: {str(e)}"
 
 
-@app.post("/describe")
+@app.get("/describe")
 async def describe_pid(pid_id: str = Query(..., description="ID do P&ID a ser descrito")):
     """
     Gera uma descrição completa do P&ID baseada na base de conhecimento.

@@ -154,7 +154,7 @@ Gera P&ID a partir de descrição em linguagem natural.
 curl -X POST "http://localhost:8000/generate?prompt=gere%20um%20P%26ID%20de%20clinquerização"
 ```
 
-### POST `/describe` (Novo! 🆕)
+### GET `/describe` (Novo! 🆕)
 Gera descrição técnica completa de um P&ID armazenado.
 
 **Parâmetros:**
