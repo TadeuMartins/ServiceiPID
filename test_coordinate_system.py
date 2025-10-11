@@ -26,13 +26,15 @@ def test_coordinate_system_in_prompts():
     print("Testing Coordinate System Definition...\n")
     
     checks = [
-        # Check for top-left origin statement
-        ("Topo superior esquerdo é o ponto (0, 0)", "Top-left origin (0,0) specified", build_prompt_code),
-        ("Topo superior esquerdo é o ponto (0, 0)", "Top-left origin (0,0) specified", gen_prompt_code),
+        # Check for top-left origin statement (Portuguese in build_prompt)
+        ("Topo superior esquerdo é o ponto (0, 0)", "Top-left origin (0,0) specified (PT)", build_prompt_code),
+        # Check for top-left origin statement (English in generation prompt)
+        ("Top left corner is point (0, 0)", "Top-left origin (0,0) specified (EN)", gen_prompt_code),
         
-        # Check for Y direction (top to bottom)
-        ("Y crescente de cima para baixo", "Y increases from top to bottom", build_prompt_code),
-        ("Y crescente de cima para baixo", "Y increases from top to bottom", gen_prompt_code),
+        # Check for Y direction (top to bottom) - Portuguese
+        ("Y crescente de cima para baixo", "Y increases from top to bottom (PT)", build_prompt_code),
+        # Check for Y direction (top to bottom) - English
+        ("Y increases top to bottom", "Y increases from top to bottom (EN)", gen_prompt_code),
         
         # Check coordinate ranges with top-left origin
         ("Y: 0.0 (topo da página)", "Y=0 at top of page", build_prompt_code),
