@@ -9,13 +9,29 @@ Este projeto é um **aplicativo web** para análise de diagramas P&ID usando **A
 - Título e identidade visual Siemens.
 - Exportação em Excel e JSON.
 
-### Versão 4 (Nova!)
+### Versão 4
 - **Geração de P&ID a partir de linguagem natural**: Crie diagramas P&ID completos apenas descrevendo o processo
 - Interface com abas: "Analisar PDF" e "Gerar a partir de Prompt"
 - Geração automática de equipamentos e instrumentos com coordenadas em folha A0 (1189mm x 841mm)
 - Aplicação automática do matcher para identificação de SystemFullName
 - Visualização 2D do layout gerado
 - Exportação dos dados gerados (Excel/JSON)
+
+### Versão 5 (Nova! 🎉)
+- **🤖 Descrição Automática do Processo**: Após análise ou geração, a IA cria automaticamente uma descrição técnica completa incluindo:
+  - Objetivo do Processo
+  - Etapas do Processo em sequência
+  - Função dos Equipamentos Principais
+  - Instrumentação e Controle
+  - Elementos de Segurança
+  - Fluxo de Materiais
+- **💬 Chatbot Inteligente Minimizável**: Assistente conversacional que responde perguntas específicas sobre o P&ID
+  - Histórico de conversação
+  - Perguntas sugeridas para facilitar o uso
+  - Respostas contextuais baseadas no P&ID específico
+  - Interface minimizável para não ocupar espaço
+- **💾 Base de Conhecimento**: Armazenamento automático de todos os P&IDs processados para consultas futuras
+- **🔍 Análise Contextual**: Capacidade de fazer perguntas sobre equipamentos, instrumentos, fluxo do processo, etc.
 
 ## Como usar
 
@@ -33,6 +49,20 @@ Este projeto é um **aplicativo web** para análise de diagramas P&ID usando **A
 3. Clique em "🎨 Gerar P&ID"
 4. Visualize a tabela gerada com equipamentos e instrumentos
 5. Exporte os resultados (Excel/JSON)
+
+### Modo 3: Interagir com o Chatbot (Novo! 🤖)
+Após análise ou geração de um P&ID:
+1. **Visualize a descrição automática** do processo (expandida automaticamente)
+2. **Role até o final da página** para encontrar o chatbot minimizável
+3. **Faça perguntas** sobre o P&ID específico:
+   - "Quais são os principais equipamentos?"
+   - "Como funciona o controle de temperatura?"
+   - "Explique o fluxo do processo"
+4. **Use os botões de exemplo** para perguntas comuns
+5. **Visualize o histórico** de todas as suas perguntas e respostas
+6. **Minimize o chatbot** quando não estiver usando
+
+![Chatbot Feature](https://github.com/user-attachments/assets/d9222492-37ca-4681-9e12-59d2d4f489d5)
 
 ## Como rodar
 
@@ -122,6 +152,68 @@ Gera P&ID a partir de descrição em linguagem natural.
 **Exemplo:**
 ```bash
 curl -X POST "http://localhost:8000/generate?prompt=gere%20um%20P%26ID%20de%20clinquerização"
+```
+
+### POST `/describe` (Novo! 🆕)
+Gera descrição técnica completa de um P&ID armazenado.
+
+**Parâmetros:**
+- `pid_id`: ID do P&ID (gerado automaticamente após análise/geração)
+
+**Retorna:**
+```json
+{
+  "pid_id": "analyzed_20241011_172600",
+  "description": "**Objetivo do Processo:**\nEste é um sistema de...",
+  "equipment_count": 45,
+  "timestamp": "2024-10-11T17:26:00"
+}
+```
+
+### POST `/chat` (Novo! 🆕)
+Chatbot que responde perguntas sobre um P&ID específico.
+
+**Parâmetros:**
+- `pid_id`: ID do P&ID
+- `question`: Pergunta do usuário
+
+**Exemplo:**
+```bash
+curl -X POST "http://localhost:8000/chat?pid_id=analyzed_20241011_172600&question=Quais%20são%20os%20principais%20equipamentos?"
+```
+
+**Retorna:**
+```json
+{
+  "pid_id": "analyzed_20241011_172600",
+  "question": "Quais são os principais equipamentos?",
+  "answer": "Os principais equipamentos identificados são: P-101 (Bomba Centrífuga)..."
+}
+```
+
+### POST `/store` (Novo! 🆕)
+Armazena dados de P&ID na base de conhecimento.
+
+**Parâmetros:**
+- `pid_id`: ID único para o P&ID
+- `data`: Lista de equipamentos/instrumentos (JSON)
+
+### GET `/knowledge-base` (Novo! 🆕)
+Lista todos os P&IDs armazenados na base de conhecimento.
+
+**Retorna:**
+```json
+{
+  "total_pids": 3,
+  "pids": [
+    {
+      "pid_id": "analyzed_20241011_172600",
+      "item_count": 45,
+      "timestamp": "2024-10-11T17:26:00",
+      "has_description": true
+    }
+  ]
+}
 ```
 
 ## Solução de Problemas
