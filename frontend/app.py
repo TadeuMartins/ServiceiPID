@@ -22,6 +22,14 @@ if "show_chatbot" not in st.session_state:
     st.session_state.show_chatbot = False
 if "process_description" not in st.session_state:
     st.session_state.process_description = None
+if "analysis_results" not in st.session_state:
+    st.session_state.analysis_results = None
+if "last_uploaded_file" not in st.session_state:
+    st.session_state.last_uploaded_file = None
+if "generation_results" not in st.session_state:
+    st.session_state.generation_results = None
+if "last_prompt" not in st.session_state:
+    st.session_state.last_prompt = None
 
 # ======== Layout inicial ========
 st.set_page_config(page_title="P&ID Digitalizer DS Brazil - Siemens", layout="wide")
@@ -79,275 +87,308 @@ def normalize_backend_result(data):
 
 # ======== Processamento ========
 if uploaded_file:
-    with st.spinner("⏳ Processando com IA..."):
-        try:
-            files = {"file": uploaded_file.getvalue()}
-            response = requests.post(API_URL, files=files, timeout=3600)
-        except Exception as e:
-            st.error(f"❌ Erro ao conectar com backend: {e}")
-            st.stop()
-
-        if response.status_code == 200:
+    # Verifica se é um arquivo novo
+    file_id = f"{uploaded_file.name}_{uploaded_file.size}"
+    
+    if st.session_state.last_uploaded_file != file_id:
+        # Arquivo novo - processar
+        st.session_state.last_uploaded_file = file_id
+        
+        with st.spinner("⏳ Processando com IA..."):
             try:
-                data = response.json()
-            except Exception:
-                st.error("❌ Backend não retornou JSON válido.")
+                files = {"file": uploaded_file.getvalue()}
+                response = requests.post(API_URL, files=files, timeout=3600)
+            except Exception as e:
+                st.error(f"❌ Erro ao conectar com backend: {e}")
                 st.stop()
 
-            pages = normalize_backend_result(data)
-            final_data = []
-            
-            # Captura pid_id se disponível
-            if pages and len(pages) > 0:
-                pid_id = pages[0].get("pid_id")
-                if pid_id:
-                    st.session_state.pid_id = pid_id
-                    st.session_state.show_chatbot = True
-                    st.session_state.chat_history = []
-                    
-                    # Busca descrição do processo (se não houver erro)
-                    try:
-                        desc_response = requests.get(f"{DESCRIBE_URL}?pid_id={pid_id}", timeout=60)
-                        if desc_response.status_code == 200:
-                            desc_data = desc_response.json()
-                            st.session_state.process_description = desc_data.get("description", "")
-                    except:
-                        pass
+            if response.status_code == 200:
+                try:
+                    data = response.json()
+                except Exception:
+                    st.error("❌ Backend não retornou JSON válido.")
+                    st.stop()
 
-            for page in pages:
-                if isinstance(page.get("resultado", []), list):
-                    for item in page["resultado"]:
-                        item["pagina"] = page.get("pagina", "?")
-                        item["modelo"] = page.get("modelo", "desconhecido")
-                        final_data.append(item)
-
-            if final_data:
-                df = pd.DataFrame(final_data)
+                pages = normalize_backend_result(data)
+                final_data = []
                 
-                # ======== Descrição do Processo ========
-                if st.session_state.process_description:
-                    with st.expander("📝 Descrição Completa do Processo", expanded=True):
-                        st.markdown(st.session_state.process_description)
+                # Captura pid_id se disponível
+                if pages and len(pages) > 0:
+                    pid_id = pages[0].get("pid_id")
+                    if pid_id:
+                        st.session_state.pid_id = pid_id
+                        st.session_state.show_chatbot = True
+                        st.session_state.chat_history = []
+                        
+                        # Busca descrição do processo (se não houver erro)
+                        try:
+                            desc_response = requests.get(f"{DESCRIBE_URL}?pid_id={pid_id}", timeout=60)
+                            if desc_response.status_code == 200:
+                                desc_data = desc_response.json()
+                                st.session_state.process_description = desc_data.get("description", "")
+                                st.success("✅ Descrição do processo gerada! Chatbot ativado para perguntas.")
+                        except:
+                            pass
 
-                # ======== KPIs ========
-                st.subheader("📊 Resumo da Análise")
-                c1, c2, c3 = st.columns(3)
-                with c1:
-                    st.metric("Total de Equipamentos", len(df))
-                with c2:
-                    st.metric("Páginas Processadas", df["pagina"].nunique())
-                with c3:
-                    st.metric("Modelos Usados", ", ".join(df["modelo"].unique().tolist()))
+                for page in pages:
+                    if isinstance(page.get("resultado", []), list):
+                        for item in page["resultado"]:
+                            item["pagina"] = page.get("pagina", "?")
+                            item["modelo"] = page.get("modelo", "desconhecido")
+                            final_data.append(item)
 
-                # ======== Filtro ========
-                st.subheader("🔍 Filtrar Resultados")
-                paginas = sorted(df["pagina"].unique())
-                pagina_sel = st.selectbox("Selecione a Página", ["Todas"] + list(map(str, paginas)))
+                # Armazena os resultados no session state
+                st.session_state.analysis_results = {
+                    "data": data,
+                    "pages": pages,
+                    "final_data": final_data,
+                    "uploaded_file_name": uploaded_file.name
+                }
+            else:
+                st.error("❌ Erro ao processar PDF.")
+                st.stop()
+    
+    # Usa os resultados armazenados no session state
+    if st.session_state.analysis_results:
+        data = st.session_state.analysis_results["data"]
+        pages = st.session_state.analysis_results["pages"]
+        final_data = st.session_state.analysis_results["final_data"]
+        
+        if final_data:
+            df = pd.DataFrame(final_data)
+            
+            # ======== Descrição do Processo ========
+            if st.session_state.process_description:
+                with st.expander("📝 Descrição Completa do Processo", expanded=True):
+                    st.markdown(st.session_state.process_description)
+                    st.markdown("---")
+                    st.info("💡 **Dica:** Role para baixo para usar o chatbot e fazer perguntas específicas sobre este P&ID!")
 
-                if pagina_sel != "Todas":
-                    df_filtered = df[df["pagina"].astype(str) == str(pagina_sel)]
-                else:
-                    df_filtered = df
+            # ======== KPIs ========
+            st.subheader("📊 Resumo da Análise")
+            c1, c2, c3 = st.columns(3)
+            with c1:
+                st.metric("Total de Equipamentos", len(df))
+            with c2:
+                st.metric("Páginas Processadas", df["pagina"].nunique())
+            with c3:
+                st.metric("Modelos Usados", ", ".join(df["modelo"].unique().tolist()))
 
-                st.dataframe(df_filtered, use_container_width=True)
+            # ======== Filtro ========
+            st.subheader("🔍 Filtrar Resultados")
+            paginas = sorted(df["pagina"].unique())
+            pagina_sel = st.selectbox("Selecione a Página", ["Todas"] + list(map(str, paginas)))
 
-                # ======== Exportação ========
-                st.subheader("📥 Exportar Resultados")
+            if pagina_sel != "Todas":
+                df_filtered = df[df["pagina"].astype(str) == str(pagina_sel)]
+            else:
+                df_filtered = df
 
-                # Nome base do PDF (sem extensão)
-                pid_name = os.path.splitext(uploaded_file.name)[0]
-                safe_name = pid_name.replace(" ", "_").replace("/", "_")
+            st.dataframe(df_filtered, use_container_width=True)
 
-                # Excel
-                tmp_excel = tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx")
-                df.to_excel(tmp_excel.name, index=False)
-                with open(tmp_excel.name, "rb") as f:
-                    st.download_button(
-                        "💾 Baixar Excel",
-                        f,
-                        file_name=f"{safe_name}_analysis.xlsx",   # <<< usa nome do PDF
-                        use_container_width=True
-                    )
-                os.unlink(tmp_excel.name)
+            # ======== Exportação ========
+            st.subheader("📥 Exportar Resultados")
 
-                # JSON
+            # Nome base do PDF (sem extensão)
+            pid_name = os.path.splitext(st.session_state.analysis_results["uploaded_file_name"])[0]
+            safe_name = pid_name.replace(" ", "_").replace("/", "_")
+
+            # Excel
+            tmp_excel = tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx")
+            df.to_excel(tmp_excel.name, index=False)
+            with open(tmp_excel.name, "rb") as f:
                 st.download_button(
-                    "💾 Baixar JSON",
-                    json.dumps(final_data, indent=2, ensure_ascii=False),
-                    file_name=f"{safe_name}_analysis.json",      # <<< idem aqui
+                    "💾 Baixar Excel",
+                    f,
+                    file_name=f"{safe_name}_analysis.xlsx",
                     use_container_width=True
                 )
+            os.unlink(tmp_excel.name)
 
-                # ======== Preview PDF ========
-                with st.expander("👁️ Pré-visualizar páginas anotadas"):
-                    tmp_pdf = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
-                    tmp_pdf.write(uploaded_file.getvalue())
-                    tmp_pdf.close()
-                    doc = fitz.open(tmp_pdf.name)
+            # ======== Preview PDF ========
+            with st.expander("👁️ Pré-visualizar páginas anotadas"):
+                tmp_pdf = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
+                tmp_pdf.write(uploaded_file.getvalue())
+                tmp_pdf.close()
+                doc = fitz.open(tmp_pdf.name)
 
-                    for page in pages:
-                        page_num = int(page.get("pagina", 1))
-                        st.markdown(f"**Página {page_num}**")
-                        pix = doc[page_num - 1].get_pixmap(dpi=150)
-                        img_bytes = pix.tobytes("png")
+                for page in pages:
+                    page_num = int(page.get("pagina", 1))
+                    st.markdown(f"**Página {page_num}**")
+                    pix = doc[page_num - 1].get_pixmap(dpi=150)
+                    img_bytes = pix.tobytes("png")
 
-                        fig, ax = plt.subplots(figsize=(8, 6))
-                        ax.imshow(plt.imread(io.BytesIO(img_bytes)), cmap="gray")
+                    fig, ax = plt.subplots(figsize=(8, 6))
+                    ax.imshow(plt.imread(io.BytesIO(img_bytes)), cmap="gray")
 
-                        for it in page.get("resultado", []):
-                            x, y = it.get("x_mm"), it.get("y_mm")
-                            if x and y:
-                                ax.plot(x, y, "rx", markersize=6)
-                                ax.text(x, y, it.get("tag", ""), fontsize=6, color="red")
+                    for it in page.get("resultado", []):
+                        x, y = it.get("x_mm"), it.get("y_mm")
+                        if x and y:
+                            ax.plot(x, y, "rx", markersize=6)
+                            ax.text(x, y, it.get("tag", ""), fontsize=6, color="red")
 
-                        ax.axis("off")
-                        st.pyplot(fig)
-                    doc.close()
-                    os.unlink(tmp_pdf.name)
+                    ax.axis("off")
+                    st.pyplot(fig)
+                doc.close()
+                os.unlink(tmp_pdf.name)
 
-                # ======== Raw JSON (debug opcional) ========
-                with st.expander("📂 Ver JSON bruto do backend"):
-                    st.json(data)
-
-            else:
-                st.warning("⚠️ Nenhum equipamento identificado.")
+            # ======== Raw JSON (debug opcional) ========
+            with st.expander("📂 Ver JSON bruto do backend"):
+                st.json(data)
 
         else:
-            st.error(f"❌ Erro no backend: {response.status_code}")
+            st.warning("⚠️ Nenhum equipamento identificado.")
+
 
 # ======== Processamento para Geração ========
 if generate_button and prompt_text:
-    with st.spinner("⏳ Gerando P&ID com IA..."):
-        try:
-            params = {"prompt": prompt_text}
-            response = requests.post(GENERATE_URL, params=params, timeout=600)
-        except Exception as e:
-            st.error(f"❌ Erro ao conectar com backend: {e}")
-            st.stop()
-
-        if response.status_code == 200:
+    # Verifica se é um novo prompt
+    if st.session_state.last_prompt != prompt_text:
+        # Novo prompt - processar
+        st.session_state.last_prompt = prompt_text
+        
+        with st.spinner("⏳ Gerando P&ID com IA..."):
             try:
-                data = response.json()
-            except Exception:
-                st.error("❌ Backend não retornou JSON válido.")
+                params = {"prompt": prompt_text}
+                response = requests.post(GENERATE_URL, params=params, timeout=600)
+            except Exception as e:
+                st.error(f"❌ Erro ao conectar com backend: {e}")
                 st.stop()
 
-            pages = normalize_backend_result(data)
-            final_data = []
-            
-            # Captura pid_id se disponível
-            if pages and len(pages) > 0:
-                pid_id = pages[0].get("pid_id")
-                if pid_id:
-                    st.session_state.pid_id = pid_id
-                    st.session_state.show_chatbot = True
-                    st.session_state.chat_history = []
-                    
-                    # Busca descrição do processo
-                    try:
-                        desc_response = requests.get(f"{DESCRIBE_URL}?pid_id={pid_id}", timeout=60)
-                        if desc_response.status_code == 200:
-                            desc_data = desc_response.json()
-                            st.session_state.process_description = desc_data.get("description", "")
-                    except:
-                        pass
+            if response.status_code == 200:
+                try:
+                    data = response.json()
+                except Exception:
+                    st.error("❌ Backend não retornou JSON válido.")
+                    st.stop()
 
-            for page in pages:
-                if isinstance(page.get("resultado", []), list):
-                    for item in page["resultado"]:
-                        item["pagina"] = page.get("pagina", "?")
-                        item["modelo"] = page.get("modelo", "desconhecido")
-                        final_data.append(item)
-
-            if final_data:
-                df = pd.DataFrame(final_data)
+                pages = normalize_backend_result(data)
+                final_data = []
                 
-                # ======== Descrição do Processo ========
-                if st.session_state.process_description:
-                    with st.expander("📝 Descrição Completa do Processo", expanded=True):
-                        st.markdown(st.session_state.process_description)
-
-                # ======== KPIs ========
-                st.subheader("📊 Resumo da Geração")
-                c1, c2, c3 = st.columns(3)
-                with c1:
-                    st.metric("Total de Equipamentos", len(df))
-                with c2:
-                    st.metric("Folha", "A0 (1189mm x 841mm)")
-                with c3:
-                    st.metric("Modelo Usado", df["modelo"].iloc[0] if len(df) > 0 else "N/A")
-
-                # ======== Tabela ========
-                st.subheader("📋 Equipamentos e Instrumentos Gerados")
-                st.dataframe(df, use_container_width=True)
-
-                # ======== Exportação ========
-                st.subheader("📥 Exportar Resultados")
-
-                # Nome baseado no prompt (primeiras palavras)
-                prompt_words = "_".join(prompt_text.split()[:5])
-                safe_name = prompt_words.replace(" ", "_").replace("/", "_")
-
-                # Excel
-                tmp_excel = tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx")
-                df.to_excel(tmp_excel.name, index=False)
-                with open(tmp_excel.name, "rb") as f:
-                    st.download_button(
-                        "💾 Baixar Excel",
-                        f,
-                        file_name=f"{safe_name}_gerado.xlsx",
-                        use_container_width=True
-                    )
-                os.unlink(tmp_excel.name)
-
-                # JSON
-                st.download_button(
-                    "💾 Baixar JSON",
-                    json.dumps(final_data, indent=2, ensure_ascii=False),
-                    file_name=f"{safe_name}_gerado.json",
-                    use_container_width=True
-                )
-
-                # ======== Visualização 2D ========
-                with st.expander("📐 Visualizar Layout (A0)"):
-                    fig, ax = plt.subplots(figsize=(16, 11))
-                    
-                    # Desenha borda da folha A0
-                    ax.add_patch(plt.Rectangle((0, 0), 1189, 841, fill=False, edgecolor='black', linewidth=2))
-                    
-                    # Plota equipamentos
-                    for _, item in df.iterrows():
-                        x, y = item.get("x_mm", 0), item.get("y_mm", 0)
-                        tag = item.get("tag", "N/A")
-                        tipo = item.get("tipo", "")
+                # Captura pid_id se disponível
+                if pages and len(pages) > 0:
+                    pid_id = pages[0].get("pid_id")
+                    if pid_id:
+                        st.session_state.pid_id = pid_id
+                        st.session_state.show_chatbot = True
+                        st.session_state.chat_history = []
                         
-                        # Cor por tipo
-                        color = "blue" if "instrumento" in tipo.lower() else "red"
-                        marker = "o" if "instrumento" in tipo.lower() else "s"
-                        
-                        ax.plot(x, y, marker=marker, color=color, markersize=10)
-                        ax.text(x + 10, y + 10, tag, fontsize=8, color=color)
-                    
-                    ax.set_xlim(0, 1189)
-                    ax.set_ylim(0, 841)
-                    ax.invert_yaxis()  # Inverte Y para origem superior esquerda (0,0)
-                    ax.set_xlabel("X (mm)")
-                    ax.set_ylabel("Y (mm)")
-                    ax.set_title("Layout do P&ID Gerado (Folha A0) - Origem: Topo Superior Esquerdo")
-                    ax.grid(True, alpha=0.3)
-                    ax.set_aspect('equal')
-                    
-                    st.pyplot(fig)
+                        # Busca descrição do processo
+                        try:
+                            desc_response = requests.get(f"{DESCRIBE_URL}?pid_id={pid_id}", timeout=60)
+                            if desc_response.status_code == 200:
+                                desc_data = desc_response.json()
+                                st.session_state.process_description = desc_data.get("description", "")
+                                st.success("✅ Descrição do processo gerada! Chatbot ativado para perguntas.")
+                        except:
+                            pass
 
-                # ======== Raw JSON (debug opcional) ========
-                with st.expander("📂 Ver JSON bruto do backend"):
-                    st.json(data)
+                for page in pages:
+                    if isinstance(page.get("resultado", []), list):
+                        for item in page["resultado"]:
+                            item["pagina"] = page.get("pagina", "?")
+                            item["modelo"] = page.get("modelo", "desconhecido")
+                            final_data.append(item)
 
+                # Armazena os resultados no session state
+                st.session_state.generation_results = {
+                    "data": data,
+                    "pages": pages,
+                    "final_data": final_data,
+                    "prompt": prompt_text
+                }
             else:
-                st.warning("⚠️ Nenhum equipamento gerado.")
+                st.error("❌ Erro ao gerar P&ID.")
+                st.stop()
+    
+    # Usa os resultados armazenados no session state
+    if st.session_state.generation_results:
+        data = st.session_state.generation_results["data"]
+        pages = st.session_state.generation_results["pages"]
+        final_data = st.session_state.generation_results["final_data"]
+        prompt_text = st.session_state.generation_results["prompt"]
+        
+        if final_data:
+            df = pd.DataFrame(final_data)
+            
+            # ======== Descrição do Processo ========
+            if st.session_state.process_description:
+                with st.expander("📝 Descrição Completa do Processo", expanded=True):
+                    st.markdown(st.session_state.process_description)
+                    st.markdown("---")
+                    st.info("💡 **Dica:** Role para baixo para usar o chatbot e fazer perguntas específicas sobre este P&ID!")
+
+            # ======== KPIs ========
+            st.subheader("📊 Resumo da Geração")
+            c1, c2, c3 = st.columns(3)
+            with c1:
+                st.metric("Total de Equipamentos", len(df))
+            with c2:
+                st.metric("Folha", "A0 (1189mm x 841mm)")
+            with c3:
+                st.metric("Modelo Usado", df["modelo"].iloc[0] if len(df) > 0 else "N/A")
+
+            # ======== Tabela ========
+            st.subheader("📋 Equipamentos e Instrumentos Gerados")
+            st.dataframe(df, use_container_width=True)
+
+            # ======== Exportação ========
+            st.subheader("📥 Exportar Resultados")
+
+            # Nome baseado no prompt (primeiras palavras)
+            prompt_words = "_".join(prompt_text.split()[:5])
+            safe_name = prompt_words.replace(" ", "_").replace("/", "_")
+
+            # Excel
+            tmp_excel = tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx")
+            df.to_excel(tmp_excel.name, index=False)
+            with open(tmp_excel.name, "rb") as f:
+                st.download_button(
+                    "💾 Baixar Excel",
+                    f,
+                    file_name=f"{safe_name}_gerado.xlsx",
+                use_container_width=True
+                )
+            os.unlink(tmp_excel.name)
+
+            # ======== Visualização 2D ========
+            with st.expander("📐 Visualizar Layout (A0)"):
+                fig, ax = plt.subplots(figsize=(16, 11))
+                
+                # Desenha borda da folha A0
+                ax.add_patch(plt.Rectangle((0, 0), 1189, 841, fill=False, edgecolor='black', linewidth=2))
+                
+                # Plota equipamentos
+                for _, item in df.iterrows():
+                    x, y = item.get("x_mm", 0), item.get("y_mm", 0)
+                    tag = item.get("tag", "N/A")
+                    tipo = item.get("tipo", "")
+                    
+                    # Cor por tipo
+                    color = "blue" if "instrumento" in tipo.lower() else "red"
+                    marker = "o" if "instrumento" in tipo.lower() else "s"
+                    
+                    ax.plot(x, y, marker=marker, color=color, markersize=10)
+                    ax.text(x + 10, y + 10, tag, fontsize=8, color=color)
+                
+                ax.set_xlim(0, 1189)
+                ax.set_ylim(0, 841)
+                ax.invert_yaxis()  # Inverte Y para origem superior esquerda (0,0)
+                ax.set_xlabel("X (mm)")
+                ax.set_ylabel("Y (mm)")
+                ax.set_title("Layout do P&ID Gerado (Folha A0) - Origem: Topo Superior Esquerdo")
+                ax.grid(True, alpha=0.3)
+                ax.set_aspect('equal')
+                
+                st.pyplot(fig)
+
+            # ======== Raw JSON (debug opcional) ========
+            with st.expander("📂 Ver JSON bruto do backend"):
+                st.json(data)
 
         else:
-            st.error(f"❌ Erro no backend: {response.status_code} - {response.text}")
+            st.warning("⚠️ Nenhum equipamento gerado.")
+
 
 elif generate_button and not prompt_text:
     st.warning("⚠️ Por favor, descreva o processo antes de gerar.")
@@ -358,12 +399,15 @@ elif generate_button and not prompt_text:
 # ============================================================
 if st.session_state.pid_id:
     st.markdown("---")
+    st.markdown("") # Adiciona espaçamento
     
     # Container para o chatbot com opção de minimizar
     chatbot_col1, chatbot_col2 = st.columns([6, 1])
     
     with chatbot_col1:
         st.markdown("### 💬 Assistente P&ID - Faça perguntas sobre este diagrama")
+        if st.session_state.show_chatbot:
+            st.markdown("*Chatbot ativado! Faça perguntas sobre o processo analisado.*")
     
     with chatbot_col2:
         if st.button("🔽 Minimizar" if st.session_state.show_chatbot else "🔼 Expandir", key="toggle_chatbot"):
