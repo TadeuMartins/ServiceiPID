@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>P&ID Chatbot Feature Mockup</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        h1 {
+            color: #009999;
+            text-align: center;
+        }
+        h2 {
+            color: #333;
+            margin-top: 40px;
+        }
+        .mockup {
+            background: white;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        img {
+            width: 100%;
+            height: auto;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        .description {
+            background: #e6f7f7;
+            padding: 15px;
+            margin: 10px 0;
+            border-left: 4px solid #009999;
+        }
+    </style>
+</head>
+<body>
+    <h1>🔎 P&ID Digitalizer - Nova Funcionalidade: Chatbot Inteligente</h1>
+    
+    <div class="description">
+        <h3>✨ Funcionalidades Implementadas:</h3>
+        <ul>
+            <li><strong>Descrição Automática do Processo:</strong> Após análise ou geração de P&ID, a IA gera automaticamente uma descrição técnica completa</li>
+            <li><strong>Base de Conhecimento:</strong> Todos os dados são armazenados para consultas futuras</li>
+            <li><strong>Chatbot Minimizável:</strong> Assistente conversacional que responde perguntas específicas sobre o P&ID</li>
+            <li><strong>Integração Automática:</strong> Funciona tanto com análise de PDF quanto com geração por prompt</li>
+        </ul>
+    </div>
+
+    <div class="mockup">
+        <h2>📱 Interface Completa do Chatbot</h2>
+        <p>Visualização de como o chatbot aparece na interface do usuário, com todas as funcionalidades:</p>
+        <img src="chatbot_mockup.png" alt="Chatbot Interface Mockup">
+    </div>
+
+    <div class="mockup">
+        <h2>🔄 Comparação: Antes vs Depois</h2>
+        <p>Veja as novas funcionalidades adicionadas ao sistema:</p>
+        <img src="before_after_comparison.png" alt="Before and After Comparison">
+    </div>
+
+    <div class="description">
+        <h3>🎯 Recursos Principais:</h3>
+        <ul>
+            <li>💬 <strong>Chatbot Minimizável:</strong> Pode ser minimizado para não ocupar espaço quando não estiver em uso</li>
+            <li>📝 <strong>Descrição Automática:</strong> Gerada pela IA incluindo objetivo, etapas, equipamentos, instrumentação e segurança</li>
+            <li>📜 <strong>Histórico de Conversação:</strong> Mantém registro de todas as perguntas e respostas</li>
+            <li>💡 <strong>Perguntas Sugeridas:</strong> Botões de exemplo para perguntas comuns</li>
+            <li>🔍 <strong>Busca Contextual:</strong> Respostas baseadas especificamente no P&ID analisado/gerado</li>
+            <li>🗑️ <strong>Limpar Histórico:</strong> Opção para limpar a conversação</li>
+        </ul>
+    </div>
+
+    <div class="description">
+        <h3>🚀 Novos Endpoints API:</h3>
+        <ul>
+            <li><code>POST /describe</code> - Gera descrição completa do processo</li>
+            <li><code>POST /chat</code> - Responde perguntas sobre o P&ID</li>
+            <li><code>POST /store</code> - Armazena P&ID na base de conhecimento</li>
+            <li><code>GET /knowledge-base</code> - Lista todos os P&IDs armazenados</li>
+        </ul>
+    </div>
+</body>
+</html>
