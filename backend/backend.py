@@ -317,13 +317,32 @@ def build_prompt(width_mm: float, height_mm: float, scope: str = "global", origi
     base = f"""
 Você é um engenheiro especialista em diagramas P&ID (Piping and Instrumentation Diagram) e símbolos ISA S5.1/S5.2/S5.3.
 
-ANÁLISE DE FLUXOGRAMA DE PROCESSO - ESPECIFICAÇÕES TÉCNICAS:
-- Dimensões da página: {width_mm} mm (X - eixo horizontal) x {height_mm} mm (Y - eixo vertical)
-- Sistema de coordenadas: ABSOLUTO e GLOBAL da página completa
-- Orientação: X crescente da esquerda para direita, Y crescente de cima para baixo
+ANÁLISE DE FLUXOGRAMA DE PROCESSO - ESPECIFICAÇÕES TÉCNICAS:"""
+    
+    if scope == "global":
+        base += f"""
+- Dimensões da imagem: {width_mm} mm (largura X) x {height_mm} mm (altura Y)
+- Sistema de coordenadas: ABSOLUTO da página completa
 - Origem: Topo superior esquerdo é o ponto (0, 0)
-- Compatibilidade: COMOS (Siemens) - coordenadas globais obrigatórias
-
+- Orientação: X crescente da esquerda para direita, Y crescente de cima para baixo
+- X: 0.0 (extrema esquerda) até {width_mm} (extrema direita)
+- Y: 0.0 (topo da página) até {height_mm} (base da página)
+"""
+    else:  # quadrant
+        ox, oy = origin
+        base += f"""
+- VOCÊ ESTÁ ANALISANDO APENAS O QUADRANTE {quad_label} DA PÁGINA COMPLETA
+- Dimensões DESTE QUADRANTE: {width_mm} mm (largura X) x {height_mm} mm (altura Y)
+- Sistema de coordenadas: LOCAL ao quadrante que você vê
+- Origem: Topo superior esquerdo é o ponto (0, 0) DO QUADRANTE
+- Orientação: X crescente da esquerda para direita, Y crescente de cima para baixo
+- X: 0.0 (extrema esquerda do quadrante) até {width_mm} (extrema direita do quadrante)
+- Y: 0.0 (topo do quadrante) até {height_mm} (base do quadrante)
+- CRÍTICO: Retorne coordenadas LOCAIS (relativas ao quadrante), NÃO globais
+- O sistema converterá automaticamente para coordenadas globais da página completa
+"""
+    
+    base += f"""
 OBJETIVO: Extrair TODOS os elementos do fluxograma de processo com máxima precisão técnica.
 
 EQUIPAMENTOS A IDENTIFICAR (lista não exaustiva):
@@ -371,14 +390,12 @@ EQUIPAMENTOS A IDENTIFICAR (lista não exaustiva):
 
 REGRAS CRÍTICAS PARA EXTRAÇÃO:
 
-1. COORDENADAS GLOBAIS (CRÍTICO PARA COMOS):
-   - SEMPRE retorne coordenadas X e Y em relação ao TOTAL da página ({width_mm} x {height_mm} mm)
-   - Mesmo em análise de quadrantes, as coordenadas devem ser GLOBAIS
-   - X: 0.0 (extrema esquerda) até {width_mm} (extrema direita)
-   - Y: 0.0 (topo da página) até {height_mm} (base da página)
-   - Origem: Topo superior esquerdo é o ponto (0, 0)
-   - Precisão: até 0.1 mm
-   - **IMPORTANTE: As coordenadas devem referenciar o CENTRO/MEIO do equipamento ou instrumento, NÃO tubulações ou outros elementos auxiliares**
+1. COORDENADAS (PRECISÃO MÁXIMA):
+   - Meça as coordenadas com MÁXIMA PRECISÃO em relação à imagem que você está vendo
+   - As coordenadas devem referenciar o CENTRO/MEIO do equipamento ou instrumento
+   - NÃO retorne coordenadas de tubulações, linhas ou elementos auxiliares
+   - Precisão requerida: até 0.1 mm
+   - Se um equipamento estiver parcialmente visível, estime o centro baseado na parte visível
 
 2. TAGS E IDENTIFICAÇÃO:
    - Capture TAGs completas mesmo se prefixo e número estiverem separados visualmente
@@ -401,7 +418,7 @@ REGRAS CRÍTICAS PARA EXTRAÇÃO:
    - Extraia TODOS os símbolos visíveis, mesmo sem TAG
    - Não omita instrumentos pequenos ou auxiliares
    - Capture válvulas manuais, drenos, vents, samplers
-   - Inclua símbolos parcialmente visíveis (estimando coordenadas)
+   - Inclua símbolos parcialmente visíveis (estimando coordenadas do centro)
 
 FORMATO DE SAÍDA (JSON OBRIGATÓRIO):
 [
@@ -422,25 +439,9 @@ FORMATO DE SAÍDA (JSON OBRIGATÓRIO):
     "to": "N/A"
   }}
 ]
-"""
-    if scope == "quadrant":
-        ox, oy = origin
-        rect_w_mm = width_mm  # These are passed as the full page dimensions, not quadrant
-        rect_h_mm = height_mm  # We need to calculate actual quadrant dimensions from origin
-        base += f"""
 
-ATENÇÃO - ANÁLISE DE QUADRANTE {quad_label}:
-- Este é o quadrante {quad_label} da página completa
-- Você está vendo APENAS este quadrante, não a página inteira
-- IMPORTANTE: Retorne coordenadas LOCAIS relativas a ESTE quadrante
-- Sistema de coordenadas LOCAL do quadrante:
-  * Origem: Canto superior esquerdo DO QUADRANTE é (0, 0)
-  * X: 0.0 (esquerda do quadrante) até largura do quadrante (direita do quadrante)
-  * Y: 0.0 (topo do quadrante) até altura do quadrante (base do quadrante)
-- NÃO tente calcular coordenadas globais - o sistema fará isso automaticamente
-- Retorne apenas as coordenadas que você vê neste quadrante, começando de (0, 0)
-"""
-    base += "\n\nRETORNE SOMENTE O ARRAY JSON. Não inclua texto adicional, markdown ou explicações."
+RETORNE SOMENTE O ARRAY JSON. Não inclua texto adicional, markdown ou explicações."""
+    
     return base.strip()
 
 
@@ -540,11 +541,12 @@ async def process_quadrant(gx, gy, rect, page, W_mm, H_mm, dpi):
     ox, oy = points_to_mm(rect.x0), points_to_mm(rect.y0)
     rect_w_mm, rect_h_mm = points_to_mm(rect.width), points_to_mm(rect.height)
 
-    log_to_front(f"🔹 Quadrant {label} | origem ≈ ({ox}, {oy}) mm")
+    log_to_front(f"🔹 Quadrant {label} | origem ≈ ({ox:.1f}, {oy:.1f}) mm | dimensões ≈ ({rect_w_mm:.1f} x {rect_h_mm:.1f}) mm")
     try:
         quad_png = render_quadrant_png(page, rect, dpi=dpi)
         quad_b64 = base64.b64encode(quad_png).decode("utf-8")
-        prompt_q = build_prompt(W_mm, H_mm, "quadrant", (ox, oy), label)
+        # Passa as dimensões CORRETAS do quadrante (não da página completa)
+        prompt_q = build_prompt(rect_w_mm, rect_h_mm, "quadrant", (ox, oy), label)
         model_used, resp_q = await asyncio.to_thread(llm_call, quad_b64, prompt_q)
         raw_q = resp_q.choices[0].message.content if resp_q and resp_q.choices else ""
         log_to_front(f"   🔍 RAW QUADRANT {label}: {raw_q[:500]}")
@@ -638,11 +640,19 @@ async def analyze_pdf(
 
             x_in = float(it.get("x_mm") or 0.0)
             y_in = float(it.get("y_mm") or 0.0)
+            tag = it.get("tag", "N/A")
+            src = it.get("_src", "global")
 
             # Converte coordenadas locais de quadrantes para coordenadas globais da página
-            if it.get("_src") == "quadrant":
+            if src == "quadrant":
                 ox = float(it.get("_ox_mm", 0.0))
                 oy = float(it.get("_oy_mm", 0.0))
+                qw = float(it.get("_qw_mm", 0.0))
+                qh = float(it.get("_qh_mm", 0.0))
+                
+                # Log detalhado da conversão
+                log_to_front(f"   🔄 Convertendo {tag}: local ({x_in:.1f}, {y_in:.1f}) + offset ({ox:.1f}, {oy:.1f}) = global ({x_in+ox:.1f}, {y_in+oy:.1f})")
+                
                 # Sempre adiciona o offset do quadrante para obter coordenadas globais
                 x_in += ox
                 y_in += oy
@@ -655,7 +665,7 @@ async def analyze_pdf(
             y_in = max(0.0, min(H_mm, y_in))
 
             item = {
-                "tag": it.get("tag", "N/A"),
+                "tag": tag,
                 "descricao": it.get("descricao", "Equipamento"),
                 "x_mm": x_in,
                 "y_mm": y_in,
