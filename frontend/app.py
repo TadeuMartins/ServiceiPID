@@ -10,6 +10,18 @@ import io
 
 API_URL = "http://localhost:8000/analyze"
 GENERATE_URL = "http://localhost:8000/generate"
+CHAT_URL = "http://localhost:8000/chat"
+DESCRIBE_URL = "http://localhost:8000/describe"
+
+# ======== Inicializa session state ========
+if "pid_id" not in st.session_state:
+    st.session_state.pid_id = None
+if "chat_history" not in st.session_state:
+    st.session_state.chat_history = []
+if "show_chatbot" not in st.session_state:
+    st.session_state.show_chatbot = False
+if "process_description" not in st.session_state:
+    st.session_state.process_description = None
 
 # ======== Layout inicial ========
 st.set_page_config(page_title="P&ID Digitalizer DS Brazil - Siemens", layout="wide")
@@ -84,6 +96,23 @@ if uploaded_file:
 
             pages = normalize_backend_result(data)
             final_data = []
+            
+            # Captura pid_id se disponível
+            if pages and len(pages) > 0:
+                pid_id = pages[0].get("pid_id")
+                if pid_id:
+                    st.session_state.pid_id = pid_id
+                    st.session_state.show_chatbot = True
+                    st.session_state.chat_history = []
+                    
+                    # Busca descrição do processo (se não houver erro)
+                    try:
+                        desc_response = requests.get(f"{DESCRIBE_URL}?pid_id={pid_id}", timeout=60)
+                        if desc_response.status_code == 200:
+                            desc_data = desc_response.json()
+                            st.session_state.process_description = desc_data.get("description", "")
+                    except:
+                        pass
 
             for page in pages:
                 if isinstance(page.get("resultado", []), list):
@@ -94,6 +123,11 @@ if uploaded_file:
 
             if final_data:
                 df = pd.DataFrame(final_data)
+                
+                # ======== Descrição do Processo ========
+                if st.session_state.process_description:
+                    with st.expander("📝 Descrição Completa do Processo", expanded=True):
+                        st.markdown(st.session_state.process_description)
 
                 # ======== KPIs ========
                 st.subheader("📊 Resumo da Análise")
@@ -200,6 +234,23 @@ if generate_button and prompt_text:
 
             pages = normalize_backend_result(data)
             final_data = []
+            
+            # Captura pid_id se disponível
+            if pages and len(pages) > 0:
+                pid_id = pages[0].get("pid_id")
+                if pid_id:
+                    st.session_state.pid_id = pid_id
+                    st.session_state.show_chatbot = True
+                    st.session_state.chat_history = []
+                    
+                    # Busca descrição do processo
+                    try:
+                        desc_response = requests.get(f"{DESCRIBE_URL}?pid_id={pid_id}", timeout=60)
+                        if desc_response.status_code == 200:
+                            desc_data = desc_response.json()
+                            st.session_state.process_description = desc_data.get("description", "")
+                    except:
+                        pass
 
             for page in pages:
                 if isinstance(page.get("resultado", []), list):
@@ -210,6 +261,11 @@ if generate_button and prompt_text:
 
             if final_data:
                 df = pd.DataFrame(final_data)
+                
+                # ======== Descrição do Processo ========
+                if st.session_state.process_description:
+                    with st.expander("📝 Descrição Completa do Processo", expanded=True):
+                        st.markdown(st.session_state.process_description)
 
                 # ======== KPIs ========
                 st.subheader("📊 Resumo da Geração")
@@ -297,6 +353,110 @@ elif generate_button and not prompt_text:
     st.warning("⚠️ Por favor, descreva o processo antes de gerar.")
 
 
+# ============================================================
+# CHATBOT MINIMIZÁVEL
+# ============================================================
+if st.session_state.pid_id and st.session_state.show_chatbot:
+    st.markdown("---")
+    
+    # Container para o chatbot com opção de minimizar
+    chatbot_col1, chatbot_col2 = st.columns([6, 1])
+    
+    with chatbot_col1:
+        st.markdown("### 💬 Assistente P&ID - Faça perguntas sobre este diagrama")
+    
+    with chatbot_col2:
+        if st.button("🔽 Minimizar" if st.session_state.show_chatbot else "🔼 Expandir", key="toggle_chatbot"):
+            st.session_state.show_chatbot = not st.session_state.show_chatbot
+            st.rerun()
+    
+    if st.session_state.show_chatbot:
+        # Container do chatbot
+        chatbot_container = st.container()
+        
+        with chatbot_container:
+            st.markdown(f"**P&ID ID:** `{st.session_state.pid_id}`")
+            
+            # Área de histórico do chat
+            if st.session_state.chat_history:
+                st.markdown("#### 📜 Histórico de Conversação")
+                for i, entry in enumerate(st.session_state.chat_history):
+                    with st.chat_message("user"):
+                        st.write(entry["question"])
+                    with st.chat_message("assistant"):
+                        st.write(entry["answer"])
+            
+            # Input para nova pergunta
+            st.markdown("#### ❓ Faça uma pergunta")
+            
+            col1, col2 = st.columns([5, 1])
+            
+            with col1:
+                user_question = st.text_input(
+                    "Pergunta:",
+                    placeholder="Ex: Quais são os principais equipamentos? Como funciona o controle de temperatura?",
+                    key="chat_input",
+                    label_visibility="collapsed"
+                )
+            
+            with col2:
+                ask_button = st.button("📤 Enviar", use_container_width=True)
+            
+            # Exemplos de perguntas
+            st.markdown("**💡 Exemplos de perguntas:**")
+            example_col1, example_col2, example_col3 = st.columns(3)
+            
+            with example_col1:
+                if st.button("📋 Listar equipamentos principais", use_container_width=True):
+                    user_question = "Quais são os equipamentos principais identificados neste P&ID?"
+                    ask_button = True
+            
+            with example_col2:
+                if st.button("🎛️ Instrumentação do processo", use_container_width=True):
+                    user_question = "Quais instrumentos de controle e medição estão presentes?"
+                    ask_button = True
+            
+            with example_col3:
+                if st.button("🔄 Descrever fluxo", use_container_width=True):
+                    user_question = "Explique o fluxo do processo neste P&ID."
+                    ask_button = True
+            
+            # Processa pergunta
+            if ask_button and user_question:
+                with st.spinner("🤔 Processando sua pergunta..."):
+                    try:
+                        response = requests.post(
+                            CHAT_URL,
+                            params={
+                                "pid_id": st.session_state.pid_id,
+                                "question": user_question
+                            },
+                            timeout=60
+                        )
+                        
+                        if response.status_code == 200:
+                            chat_data = response.json()
+                            answer = chat_data.get("answer", "Desculpe, não consegui gerar uma resposta.")
+                            
+                            # Adiciona ao histórico
+                            st.session_state.chat_history.append({
+                                "question": user_question,
+                                "answer": answer
+                            })
+                            
+                            # Recarrega a página para mostrar a nova mensagem
+                            st.rerun()
+                        else:
+                            st.error(f"❌ Erro ao processar pergunta: {response.status_code} - {response.text}")
+                    
+                    except Exception as e:
+                        st.error(f"❌ Erro ao conectar com o chatbot: {e}")
+            
+            # Botão para limpar histórico
+            if st.session_state.chat_history:
+                if st.button("🗑️ Limpar histórico de conversação"):
+                    st.session_state.chat_history = []
+                    st.rerun()
 
 
 

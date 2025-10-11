@@ -66,6 +66,11 @@ app.add_middleware(GZipMiddleware, minimum_size=1000)
 # ============================================================
 progress_messages: List[str] = []
 
+# ============================================================
+# KNOWLEDGE BASE - Armazena descrições de P&IDs analisados
+# ============================================================
+pid_knowledge_base: Dict[str, Dict[str, Any]] = {}
+
 
 def log_to_front(msg: str) -> None:
     print(msg, flush=True)
@@ -637,6 +642,36 @@ async def analyze_pdf(
         })
 
     log_to_front("✅ Análise concluída.")
+    
+    # Auto-armazena na base de conhecimento
+    from datetime import datetime
+    all_items = []
+    for page in all_pages:
+        all_items.extend(page.get("resultado", []))
+    
+    if all_items:
+        pid_id = f"analyzed_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        pid_knowledge_base[pid_id] = {
+            "data": all_items,
+            "timestamp": datetime.now().isoformat(),
+            "description": "",
+            "source": "analyze",
+            "filename": file.filename if hasattr(file, 'filename') else "unknown"
+        }
+        log_to_front(f"💾 P&ID armazenado como '{pid_id}' ({len(all_items)} itens)")
+        
+        # Gera descrição automática
+        try:
+            description = generate_process_description(all_items)
+            pid_knowledge_base[pid_id]["description"] = description
+            log_to_front(f"📝 Descrição do processo gerada automaticamente")
+        except Exception as e:
+            log_to_front(f"⚠️ Não foi possível gerar descrição: {e}")
+        
+        # Adiciona pid_id ao response
+        for page in all_pages:
+            page["pid_id"] = pid_id
+    
     return JSONResponse(content=all_pages)
 
 
@@ -967,11 +1002,32 @@ async def generate_pid(
         
         log_to_front(f"✅ Geração concluída: {len(unique)} itens únicos")
         
+        # Auto-armazena na base de conhecimento
+        from datetime import datetime
+        pid_id = f"generated_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        pid_knowledge_base[pid_id] = {
+            "data": unique,
+            "timestamp": datetime.now().isoformat(),
+            "description": "",
+            "source": "generate",
+            "original_prompt": prompt
+        }
+        log_to_front(f"💾 P&ID armazenado como '{pid_id}' ({len(unique)} itens)")
+        
+        # Gera descrição automática
+        try:
+            description = generate_process_description(unique)
+            pid_knowledge_base[pid_id]["description"] = description
+            log_to_front(f"📝 Descrição do processo gerada automaticamente")
+        except Exception as e:
+            log_to_front(f"⚠️ Não foi possível gerar descrição: {e}")
+        
         # Retorna no mesmo formato do /analyze
         response_data = [{
             "pagina": 1,
             "modelo": FALLBACK_MODEL,
-            "resultado": unique
+            "resultado": unique,
+            "pid_id": pid_id
         }]
         
         return JSONResponse(content=response_data)
@@ -980,6 +1036,249 @@ async def generate_pid(
         log_to_front(f"❌ Erro na geração: {e}")
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Erro ao gerar P&ID: {str(e)}")
+
+
+# ============================================================
+# GERAÇÃO DE DESCRIÇÃO DO PROCESSO
+# ============================================================
+def generate_process_description(pid_data: List[Dict[str, Any]]) -> str:
+    """
+    Gera uma descrição completa do P&ID baseada nos equipamentos identificados.
+    """
+    if not pid_data:
+        return "Nenhum equipamento identificado."
+    
+    # Agrupa por tipo de equipamento
+    equipamentos = []
+    instrumentos = []
+    
+    for item in pid_data:
+        tag = item.get("tag", "N/A")
+        descricao = item.get("descricao", "")
+        tipo = item.get("tipo", "")
+        
+        if any(prefix in tag for prefix in ["FT", "PT", "TT", "LT", "FIC", "PIC", "TIC", "LIC", "PSV", "FE", "PE", "TE", "LE"]):
+            instrumentos.append(item)
+        else:
+            equipamentos.append(item)
+    
+    # Monta o prompt para gerar descrição
+    prompt = f"""Com base nos seguintes equipamentos e instrumentos identificados em um P&ID, gere uma descrição técnica completa e detalhada do processo industrial:
+
+EQUIPAMENTOS PRINCIPAIS ({len(equipamentos)} itens):
+"""
+    
+    for eq in equipamentos[:20]:  # Limita para não exceder token limit
+        prompt += f"- {eq.get('tag', 'N/A')}: {eq.get('descricao', 'N/A')}\n"
+    
+    if len(equipamentos) > 20:
+        prompt += f"... e mais {len(equipamentos) - 20} equipamentos\n"
+    
+    prompt += f"""
+INSTRUMENTAÇÃO ({len(instrumentos)} itens):
+"""
+    
+    for inst in instrumentos[:30]:
+        prompt += f"- {inst.get('tag', 'N/A')}: {inst.get('descricao', 'N/A')}\n"
+    
+    if len(instrumentos) > 30:
+        prompt += f"... e mais {len(instrumentos) - 30} instrumentos\n"
+    
+    prompt += """
+Por favor, forneça uma descrição estruturada incluindo:
+1. **Objetivo do Processo**: Qual é o propósito principal desta planta/sistema
+2. **Etapas do Processo**: Descreva as principais etapas em sequência lógica
+3. **Equipamentos Principais**: Função de cada equipamento principal identificado
+4. **Instrumentação e Controle**: Quais variáveis são monitoradas e controladas
+5. **Segurança**: Elementos de segurança presentes (PSVs, alarmes, intertravamentos)
+6. **Fluxo do Processo**: Descreva o fluxo de materiais através do sistema
+
+Seja técnico e específico, usando terminologia da engenharia de processos."""
+    
+    try:
+        log_to_front("🤖 Gerando descrição do processo...")
+        
+        global client
+        resp = client.chat.completions.create(
+            model=FALLBACK_MODEL,
+            messages=[{
+                "role": "user",
+                "content": prompt
+            }],
+            temperature=0.7,
+            timeout=OPENAI_REQUEST_TIMEOUT
+        )
+        
+        description = resp.choices[0].message.content if resp and resp.choices else "Erro ao gerar descrição"
+        log_to_front("✅ Descrição do processo gerada")
+        
+        return description
+        
+    except Exception as e:
+        log_to_front(f"❌ Erro ao gerar descrição: {e}")
+        return f"Erro ao gerar descrição: {str(e)}"
+
+
+@app.post("/describe")
+async def describe_pid(pid_id: str = Query(..., description="ID do P&ID a ser descrito")):
+    """
+    Gera uma descrição completa do P&ID baseada na base de conhecimento.
+    """
+    if not OPENAI_API_KEY:
+        raise HTTPException(status_code=400, detail="OPENAI_API_KEY não definida")
+    
+    if pid_id not in pid_knowledge_base:
+        raise HTTPException(status_code=404, detail=f"P&ID '{pid_id}' não encontrado na base de conhecimento")
+    
+    pid_info = pid_knowledge_base[pid_id]
+    description = generate_process_description(pid_info.get("data", []))
+    
+    # Atualiza a base de conhecimento com a descrição
+    pid_knowledge_base[pid_id]["description"] = description
+    
+    return JSONResponse(content={
+        "pid_id": pid_id,
+        "description": description,
+        "equipment_count": len(pid_info.get("data", [])),
+        "timestamp": pid_info.get("timestamp", "")
+    })
+
+
+# ============================================================
+# CHATBOT Q&A
+# ============================================================
+@app.post("/chat")
+async def chat_about_pid(
+    pid_id: str = Query(..., description="ID do P&ID"),
+    question: str = Query(..., description="Pergunta sobre o P&ID")
+):
+    """
+    Responde perguntas sobre um P&ID específico usando a base de conhecimento.
+    """
+    if not OPENAI_API_KEY:
+        raise HTTPException(status_code=400, detail="OPENAI_API_KEY não definida")
+    
+    if not question or len(question.strip()) < 3:
+        raise HTTPException(status_code=400, detail="Pergunta muito curta")
+    
+    if pid_id not in pid_knowledge_base:
+        raise HTTPException(status_code=404, detail=f"P&ID '{pid_id}' não encontrado. Execute análise ou geração primeiro.")
+    
+    pid_info = pid_knowledge_base[pid_id]
+    pid_data = pid_info.get("data", [])
+    description = pid_info.get("description", "")
+    
+    # Monta o contexto para o chatbot
+    context = f"""Você é um assistente especializado em P&ID (Piping and Instrumentation Diagram). 
+Você tem acesso aos seguintes dados sobre o P&ID '{pid_id}':
+
+DESCRIÇÃO DO PROCESSO:
+{description if description else "Descrição não gerada ainda."}
+
+EQUIPAMENTOS E INSTRUMENTOS ({len(pid_data)} itens):
+"""
+    
+    # Adiciona lista de equipamentos
+    for item in pid_data[:50]:  # Limita para não exceder token limit
+        context += f"- {item.get('tag', 'N/A')}: {item.get('descricao', 'N/A')}"
+        if item.get("from") != "N/A":
+            context += f" (de: {item.get('from')})"
+        if item.get("to") != "N/A":
+            context += f" (para: {item.get('to')})"
+        context += "\n"
+    
+    if len(pid_data) > 50:
+        context += f"... e mais {len(pid_data) - 50} itens\n"
+    
+    context += f"""
+PERGUNTA DO USUÁRIO:
+{question}
+
+Por favor, responda de forma clara, técnica e específica baseando-se APENAS nas informações fornecidas acima sobre este P&ID. 
+Se a informação solicitada não estiver disponível nos dados fornecidos, indique isso claramente."""
+    
+    try:
+        log_to_front(f"💬 Respondendo pergunta sobre {pid_id}: {question[:50]}...")
+        
+        global client
+        resp = client.chat.completions.create(
+            model=FALLBACK_MODEL,
+            messages=[{
+                "role": "user",
+                "content": context
+            }],
+            temperature=0.5,  # Menos criatividade para respostas mais precisas
+            timeout=OPENAI_REQUEST_TIMEOUT
+        )
+        
+        answer = resp.choices[0].message.content if resp and resp.choices else "Erro ao gerar resposta"
+        log_to_front("✅ Resposta gerada")
+        
+        return JSONResponse(content={
+            "pid_id": pid_id,
+            "question": question,
+            "answer": answer
+        })
+        
+    except Exception as e:
+        log_to_front(f"❌ Erro no chatbot: {e}")
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Erro ao processar pergunta: {str(e)}")
+
+
+# ============================================================
+# ARMAZENAR P&ID NA BASE DE CONHECIMENTO
+# ============================================================
+@app.post("/store")
+async def store_pid_knowledge(
+    pid_id: str = Query(..., description="ID único para o P&ID"),
+    data: List[Dict[str, Any]] = None
+):
+    """
+    Armazena dados de P&ID na base de conhecimento para uso posterior no chatbot.
+    """
+    from datetime import datetime
+    
+    if not data:
+        raise HTTPException(status_code=400, detail="Dados do P&ID não fornecidos")
+    
+    pid_knowledge_base[pid_id] = {
+        "data": data,
+        "timestamp": datetime.now().isoformat(),
+        "description": ""  # Será preenchido quando /describe for chamado
+    }
+    
+    log_to_front(f"💾 P&ID '{pid_id}' armazenado na base de conhecimento ({len(data)} itens)")
+    
+    return JSONResponse(content={
+        "status": "success",
+        "pid_id": pid_id,
+        "items_stored": len(data),
+        "message": "P&ID armazenado com sucesso. Use /describe para gerar descrição."
+    })
+
+
+# ============================================================
+# LISTAR P&IDs NA BASE DE CONHECIMENTO
+# ============================================================
+@app.get("/knowledge-base")
+def list_knowledge_base():
+    """
+    Lista todos os P&IDs armazenados na base de conhecimento.
+    """
+    summary = []
+    for pid_id, info in pid_knowledge_base.items():
+        summary.append({
+            "pid_id": pid_id,
+            "item_count": len(info.get("data", [])),
+            "timestamp": info.get("timestamp", ""),
+            "has_description": bool(info.get("description", ""))
+        })
+    
+    return JSONResponse(content={
+        "total_pids": len(pid_knowledge_base),
+        "pids": summary
+    })
 
 
 # ============================================================
