@@ -184,8 +184,21 @@ def dist_mm(a: Tuple[float, float], b: Tuple[float, float]) -> float:
 
 
 def dedup_items(items: List[Dict[str, Any]], page_num: int, tol_mm: float = 10.0) -> List[Dict[str, Any]]:
-    seen_tag = set()
-    kept: List[Dict[str, Any]] = []
+    """
+    Remove duplicatas com base em TAG e proximidade espacial.
+    
+    Estratégia:
+    1. Normaliza todos os campos
+    2. Para cada item, verifica se já existe um item com:
+       - Mesma TAG na mesma página (se TAG não for N/A) OU
+       - Mesmo TAG E coordenadas muito próximas (dentro de tol_mm)
+    3. Se já existe, descarta o novo item (mantém o primeiro)
+    4. Se não existe, mantém o item
+    
+    IMPORTANTE: Itens com TAGs diferentes NÃO são considerados duplicatas,
+    mesmo se estiverem próximos espacialmente.
+    """
+    # Normaliza todos os itens primeiro
     for it in items:
         it["pagina"] = int(round(float(it.get("pagina", page_num)) or page_num))
         try:
@@ -197,20 +210,52 @@ def dedup_items(items: List[Dict[str, Any]], page_num: int, tol_mm: float = 10.0
             it["tag"] = "N/A"
         if not isinstance(it.get("descricao", ""), str):
             it["descricao"] = "Equipamento"
-    for it in items:
-        key = (it.get("tag", "").strip().upper(), it["pagina"])
-        if key[0] and key[0] != "N/A":
-            if key in seen_tag:
-                continue
-            seen_tag.add(key)
-            kept.append(it)
-        else:
-            kept.append(it)
+    
     final: List[Dict[str, Any]] = []
-    for it in kept:
-        p = (it["x_mm"], it["y_mm"])
-        if not any(dist_mm(p, (jt["x_mm"], jt["y_mm"])) <= tol_mm for jt in final):
+    seen_tags = {}  # Maps (tag, page) -> list of positions
+    
+    for it in items:
+        tag = it.get("tag", "").strip().upper()
+        pos = (it["x_mm"], it["y_mm"])
+        page = it["pagina"]
+        
+        is_duplicate = False
+        
+        # Para itens com TAG válida (não N/A)
+        if tag and tag != "N/A":
+            tag_key = (tag, page)
+            
+            # Verifica se já existe esse mesmo TAG
+            if tag_key in seen_tags:
+                # Verifica se está próximo de alguma posição existente com MESMO TAG
+                for existing_pos in seen_tags[tag_key]:
+                    if dist_mm(pos, existing_pos) <= tol_mm:
+                        is_duplicate = True
+                        break
+                
+                # Se não está próximo de nenhuma posição existente com mesmo TAG,
+                # pode ser uma segunda ocorrência do mesmo equipamento (ex: P-101A e P-101B)
+                # Neste caso, não é duplicata
+                if not is_duplicate:
+                    seen_tags[tag_key].append(pos)
+            else:
+                # Primeira ocorrência deste TAG
+                seen_tags[tag_key] = [pos]
+        
+        # Para itens sem TAG (N/A), verifica proximidade com QUALQUER item existente
+        else:
+            for existing in final:
+                if existing["pagina"] == page:
+                    existing_pos = (existing["x_mm"], existing["y_mm"])
+                    if dist_mm(pos, existing_pos) <= tol_mm:
+                        # Item sem TAG muito próximo de outro item - provavelmente duplicata
+                        is_duplicate = True
+                        break
+        
+        # Se não é duplicata, adiciona à lista final
+        if not is_duplicate:
             final.append(it)
+    
     return final
 
 
@@ -380,14 +425,20 @@ FORMATO DE SAÍDA (JSON OBRIGATÓRIO):
 """
     if scope == "quadrant":
         ox, oy = origin
+        rect_w_mm = width_mm  # These are passed as the full page dimensions, not quadrant
+        rect_h_mm = height_mm  # We need to calculate actual quadrant dimensions from origin
         base += f"""
 
 ATENÇÃO - ANÁLISE DE QUADRANTE {quad_label}:
 - Este é o quadrante {quad_label} da página completa
-- Origem do quadrante no sistema global: X={ox} mm, Y={oy} mm
-- IMPORTANTE: Retorne coordenadas GLOBAIS, NÃO coordenadas locais do quadrante
-- Se você calcular coordenadas locais do quadrante, SOME a origem: X_global = X_local + {ox}, Y_global = Y_local + {oy}
-- As coordenadas finais devem estar entre X: 0-{width_mm} e Y: 0-{height_mm} (sistema global da página)
+- Você está vendo APENAS este quadrante, não a página inteira
+- IMPORTANTE: Retorne coordenadas LOCAIS relativas a ESTE quadrante
+- Sistema de coordenadas LOCAL do quadrante:
+  * Origem: Canto superior esquerdo DO QUADRANTE é (0, 0)
+  * X: 0.0 (esquerda do quadrante) até largura do quadrante (direita do quadrante)
+  * Y: 0.0 (topo do quadrante) até altura do quadrante (base do quadrante)
+- NÃO tente calcular coordenadas globais - o sistema fará isso automaticamente
+- Retorne apenas as coordenadas que você vê neste quadrante, começando de (0, 0)
 """
     base += "\n\nRETORNE SOMENTE O ARRAY JSON. Não inclua texto adicional, markdown ou explicações."
     return base.strip()
@@ -588,16 +639,13 @@ async def analyze_pdf(
             x_in = float(it.get("x_mm") or 0.0)
             y_in = float(it.get("y_mm") or 0.0)
 
-            # corrige quadrantes
+            # Converte coordenadas locais de quadrantes para coordenadas globais da página
             if it.get("_src") == "quadrant":
                 ox = float(it.get("_ox_mm", 0.0))
                 oy = float(it.get("_oy_mm", 0.0))
-                qw = float(it.get("_qw_mm", 0.0))
-                qh = float(it.get("_qh_mm", 0.0))
-                margin = 5.0
-                if (0 - margin) <= x_in <= (qw + margin) and (0 - margin) <= y_in <= (qh + margin):
-                    x_in += ox
-                    y_in += oy
+                # Sempre adiciona o offset do quadrante para obter coordenadas globais
+                x_in += ox
+                y_in += oy
 
             # flip Y para COMOS
             y_cad = H_mm - y_in
