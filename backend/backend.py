@@ -26,11 +26,15 @@ from system_matcher import match_system_fullname
 load_dotenv()
 
 # =================================================
-# 🔑 CONFIG OPENAI
+# 🔑 CONFIG GROQ/OPENAI API
 # =================================================
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-PRIMARY_MODEL = os.getenv("PRIMARY_MODEL", "gpt-5")
-FALLBACK_MODEL = os.getenv("FALLBACK_MODEL", "gpt-4o")
+# Groq API Configuration
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+GROQ_BASE_URL = os.getenv("GROQ_BASE_URL", "https://api.groq.com/openai/v1")
+
+# Model Configuration
+PRIMARY_MODEL = os.getenv("PRIMARY_MODEL", "gpt-oss-120b")
+FALLBACK_MODEL = os.getenv("FALLBACK_MODEL", "llama-3.3-70b-versatile")
 OPENAI_REQUEST_TIMEOUT = int(os.getenv("OPENAI_REQUEST_TIMEOUT", "600"))
 
 
@@ -40,9 +44,9 @@ def make_client(verify_ssl: bool = True) -> OpenAI:
         timeout=OPENAI_REQUEST_TIMEOUT,
     )
     # Only create client if API key is set
-    if not OPENAI_API_KEY:
+    if not GROQ_API_KEY:
         return None
-    return OpenAI(api_key=OPENAI_API_KEY, http_client=http_client)
+    return OpenAI(api_key=GROQ_API_KEY, base_url=GROQ_BASE_URL, http_client=http_client)
 
 
 client = make_client(verify_ssl=True)
@@ -95,13 +99,13 @@ def get_progress():
 # ============================================================
 @app.on_event("startup")
 async def startup_event():
-    if not OPENAI_API_KEY:
-        log_to_front("❌ OPENAI_API_KEY não definido. Configure a chave no arquivo .env")
+    if not GROQ_API_KEY:
+        log_to_front("❌ GROQ_API_KEY não definido. Configure a chave no arquivo .env")
         return
     try:
         models = client.models.list()
         ids = [m.id for m in models.data]
-        log_to_front("✅ Conexão OpenAI OK. Modelos detectados: " + ", ".join(ids[:8]))
+        log_to_front("✅ Conexão Groq API OK. Modelos detectados: " + ", ".join(ids[:8]))
     except Exception as e:
         log_to_front(f"❌ Erro SSL verificado: {e}")
         try:
@@ -451,10 +455,10 @@ RETORNE SOMENTE O ARRAY JSON. Não inclua texto adicional, markdown ou explicaç
 def llm_call(image_b64: str, prompt: str, prefer_model: str = PRIMARY_MODEL):
     global client
     
-    if prefer_model == "gpt-5":
+    if prefer_model == PRIMARY_MODEL:
         try:
             resp = client.chat.completions.create(
-                model="gpt-5",
+                model=PRIMARY_MODEL,
                 messages=[{
                     "role": "user",
                     "content": [
@@ -464,16 +468,16 @@ def llm_call(image_b64: str, prompt: str, prefer_model: str = PRIMARY_MODEL):
                 }],
                 timeout=OPENAI_REQUEST_TIMEOUT
             )
-            return "gpt-5", resp
+            return PRIMARY_MODEL, resp
         except Exception as e:
             # Check if it's an SSL error and retry without SSL verification
             if "SSL" in str(e) or "certificate" in str(e).lower():
-                log_to_front(f"⚠️ gpt-5 falhou com erro SSL: {e}")
+                log_to_front(f"⚠️ {PRIMARY_MODEL} falhou com erro SSL: {e}")
                 log_to_front("🔄 Tentando novamente sem verificação SSL...")
                 client = make_client(verify_ssl=False)
                 try:
                     resp = client.chat.completions.create(
-                        model="gpt-5",
+                        model=PRIMARY_MODEL,
                         messages=[{
                             "role": "user",
                             "content": [
@@ -483,11 +487,11 @@ def llm_call(image_b64: str, prompt: str, prefer_model: str = PRIMARY_MODEL):
                         }],
                         timeout=OPENAI_REQUEST_TIMEOUT
                     )
-                    return "gpt-5", resp
+                    return PRIMARY_MODEL, resp
                 except Exception as e2:
-                    log_to_front(f"⚠️ gpt-5 falhou novamente: {e2}")
+                    log_to_front(f"⚠️ {PRIMARY_MODEL} falhou novamente: {e2}")
             else:
-                log_to_front(f"⚠️ gpt-5 falhou: {e}")
+                log_to_front(f"⚠️ {PRIMARY_MODEL} falhou: {e}")
     
     try:
         resp = client.chat.completions.create(
@@ -578,8 +582,8 @@ async def analyze_pdf(
     grid: int = Query(3, ge=1, le=6),
     tol_mm: float = Query(10.0, ge=1.0, le=50.0)
 ):
-    if not OPENAI_API_KEY:
-        raise HTTPException(status_code=400, detail="OPENAI_API_KEY não definida. Configure a chave no arquivo .env")
+    if not GROQ_API_KEY:
+        raise HTTPException(status_code=400, detail="GROQ_API_KEY não definida. Configure a chave no arquivo .env")
 
     data = await file.read()
     if not data:
@@ -952,8 +956,8 @@ async def generate_pid(
     """
     Gera P&ID a partir de descrição em linguagem natural.
     """
-    if not OPENAI_API_KEY:
-        raise HTTPException(status_code=400, detail="OPENAI_API_KEY não definida. Configure a chave no arquivo .env")
+    if not GROQ_API_KEY:
+        raise HTTPException(status_code=400, detail="GROQ_API_KEY não definida. Configure a chave no arquivo .env")
     
     if not prompt or len(prompt.strip()) < 10:
         raise HTTPException(status_code=400, detail="Prompt muito curto. Descreva o processo com mais detalhes.")
@@ -1182,8 +1186,8 @@ async def describe_pid(pid_id: str = Query(..., description="ID do P&ID a ser de
     """
     Gera uma descrição completa do P&ID baseada na base de conhecimento.
     """
-    if not OPENAI_API_KEY:
-        raise HTTPException(status_code=400, detail="OPENAI_API_KEY não definida")
+    if not GROQ_API_KEY:
+        raise HTTPException(status_code=400, detail="GROQ_API_KEY não definida")
     
     if pid_id not in pid_knowledge_base:
         raise HTTPException(status_code=404, detail=f"P&ID '{pid_id}' não encontrado na base de conhecimento")
@@ -1213,8 +1217,8 @@ async def chat_about_pid(
     """
     Responde perguntas sobre um P&ID específico usando a base de conhecimento.
     """
-    if not OPENAI_API_KEY:
-        raise HTTPException(status_code=400, detail="OPENAI_API_KEY não definida")
+    if not GROQ_API_KEY:
+        raise HTTPException(status_code=400, detail="GROQ_API_KEY não definida")
     
     if not question or len(question.strip()) < 3:
         raise HTTPException(status_code=400, detail="Pergunta muito curta")
