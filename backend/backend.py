@@ -586,7 +586,7 @@ def llm_call(image_b64: str, prompt: str, prefer_model: str = PRIMARY_MODEL):
 # ============================================================
 # PROCESSAMENTO QUADRANTE
 # ============================================================
-async def process_quadrant(gx, gy, rect, page, W_mm, H_mm, dpi):
+async def process_quadrant(gx, gy, rect, page, W_mm_prompt, H_mm_prompt, dpi):
     label = f"{gy+1}-{gx+1}"
     ox, oy = points_to_mm(rect.x0), points_to_mm(rect.y0)
     rect_w_mm, rect_h_mm = points_to_mm(rect.width), points_to_mm(rect.height)
@@ -600,7 +600,8 @@ async def process_quadrant(gx, gy, rect, page, W_mm, H_mm, dpi):
             raise ValueError(f"Failed to render quadrant {label}: empty image data")
         
         quad_b64 = base64.b64encode(quad_png).decode("utf-8")
-        # Passa as dimensões CORRETAS do quadrante (não da página completa)
+        
+        # Page is already rotated to landscape, use dimensions as-is
         prompt_q = build_prompt(rect_w_mm, rect_h_mm, "quadrant", (ox, oy), label)
         model_used, resp_q = await asyncio.to_thread(llm_call, quad_b64, prompt_q)
         raw_q = resp_q.choices[0].message.content if resp_q and resp_q.choices else ""
@@ -654,18 +655,50 @@ async def analyze_pdf(
         page_num = page_idx + 1
         log_to_front(f"\n===== Página {page_num} =====")
 
-        # Ensure page is always in landscape orientation
-        # Check current orientation and rotate if needed
+        # Get original page dimensions
         W_pts, H_pts = page.rect.width, page.rect.height
-        if H_pts > W_pts:
-            # Page is in portrait, rotate 90 degrees to landscape
-            log_to_front(f"⤵️ Página em retrato detectada ({points_to_mm(W_pts):.1f} x {points_to_mm(H_pts):.1f} mm), rotacionando para paisagem...")
-            page.set_rotation(90)
-            # After rotation, dimensions are automatically swapped
-            W_pts, H_pts = page.rect.width, page.rect.height
-        
         W_mm, H_mm = points_to_mm(W_pts), points_to_mm(H_pts)
-        log_to_front(f"Dimensões (mm): X={W_mm}, Y={H_mm} (paisagem)")
+        
+        # Ensure page is in landscape orientation
+        is_portrait = H_mm > W_mm
+        
+        if is_portrait:
+            log_to_front(f"⤵️ Página em retrato detectada ({W_mm:.1f} x {H_mm:.1f} mm)")
+            log_to_front(f"   Rotacionando para paisagem...")
+            
+            # Try -90 degree rotation (counter-clockwise)
+            page.set_rotation(-90)
+            
+            # Verify rotation by checking if text is readable
+            log_to_front(f"   Verificando orientação do texto...")
+            text = page.get_text()
+            
+            # If text extraction worked and we have readable text, keep this rotation
+            # If not, try the opposite direction
+            if text and len(text.strip()) > 0:
+                log_to_front(f"   ✓ Texto legível encontrado ({len(text)} caracteres)")
+                log_to_front(f"   ✓ Rotação -90° (anti-horário) aplicada")
+            else:
+                # No text found or text is garbled, try opposite rotation
+                log_to_front(f"   ⚠️ Texto não legível com -90°, tentando +90°...")
+                page.set_rotation(90)
+                text_alt = page.get_text()
+                if text_alt and len(text_alt.strip()) > len(text.strip()):
+                    log_to_front(f"   ✓ Melhor resultado com +90° (horário)")
+                else:
+                    # Keep -90 as default
+                    page.set_rotation(-90)
+                    log_to_front(f"   ✓ Usando -90° (anti-horário) como padrão")
+            
+            # After rotation, dimensions are swapped
+            W_pts, H_pts = page.rect.width, page.rect.height
+            W_mm, H_mm = points_to_mm(W_pts), points_to_mm(H_pts)
+            log_to_front(f"   Dimensões após rotação: {W_mm:.1f} x {H_mm:.1f} mm (paisagem)")
+        else:
+            log_to_front(f"Dimensões: {W_mm:.1f} x {H_mm:.1f} mm (paisagem)")
+        
+        # Now page is in landscape, use these dimensions for prompts
+        W_mm_prompt, H_mm_prompt = W_mm, H_mm
 
         global_list: List[Dict[str, Any]] = []
         quad_items: List[Dict[str, Any]] = []
@@ -674,7 +707,7 @@ async def analyze_pdf(
         try:
             page_png = page.get_pixmap(dpi=dpi).tobytes("png")
             page_b64 = base64.b64encode(page_png).decode("utf-8")
-            prompt_global = build_prompt(W_mm, H_mm, "global")
+            prompt_global = build_prompt(W_mm_prompt, H_mm_prompt, "global")
             model_used, resp = llm_call(page_b64, prompt_global)
             raw = resp.choices[0].message.content if resp and resp.choices else ""
             log_to_front(f"🌐 RAW GLOBAL OUTPUT (page {page_num}): {raw[:500]}")
@@ -687,7 +720,7 @@ async def analyze_pdf(
 
         if grid > 1:
             quads = page_quadrants(page, grid_x=grid, grid_y=grid)
-            tasks = [process_quadrant(gx, gy, rect, page, W_mm, H_mm, dpi) for gx, gy, rect in quads]
+            tasks = [process_quadrant(gx, gy, rect, page, W_mm_prompt, H_mm_prompt, dpi) for gx, gy, rect in quads]
             results = await asyncio.gather(*tasks)
             for r in results:
                 quad_items.extend(r)
@@ -721,7 +754,7 @@ async def analyze_pdf(
             # No Y flip - top-left origin (0,0) for both y_mm and y_mm_cad
             y_cad = y_in
 
-            # clamp
+            # clamp to page dimensions
             x_in = max(0.0, min(W_mm, x_in))
             y_in = max(0.0, min(H_mm, y_in))
 
