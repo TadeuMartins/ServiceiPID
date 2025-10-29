@@ -280,6 +280,34 @@ Se você receber erros relacionados à API key da OpenAI:
 
 **Lembre-se:** O arquivo `.env` NÃO existe no repositório por segurança. Você SEMPRE precisa criá-lo manualmente usando o template `.env.example`.
 
+#### Verificando a Configuração do .env
+
+Para verificar se o arquivo `.env` foi criado corretamente:
+
+**Linux/Mac:**
+```bash
+# Verificar se o arquivo existe
+ls -la .env
+
+# Ver o conteúdo (CUIDADO: não compartilhe a saída!)
+cat .env
+```
+
+**Windows (CMD):**
+```cmd
+# Verificar se o arquivo existe
+dir .env
+
+# Ver o conteúdo (CUIDADO: não compartilhe a saída!)
+type .env
+```
+
+**Dicas importantes:**
+- Certifique-se de que o arquivo está na **raiz do projeto** (mesma pasta que README.md)
+- O nome deve ser exatamente `.env` (com o ponto no início)
+- **NUNCA** compartilhe seu arquivo `.env` ou sua chave de API
+- **NUNCA** faça commit do arquivo `.env` no git (já protegido pelo `.gitignore`)
+
 O arquivo `.env` é carregado automaticamente pelo backend usando `python-dotenv`.
 
 ### Erro de Certificado SSL (Certificate Verify Failed)
