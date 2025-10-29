@@ -294,7 +294,6 @@ def preprocess_image(img_bytes: bytes) -> bytes:
     img = img.resize((img.width * 2, img.height * 2), Image.LANCZOS)
     out = io.BytesIO()
     img.save(out, format="PNG", optimize=False)
-    out.seek(0)  # Ensure we're at the start of the buffer
     result = out.getvalue()
     
     # Validate the PNG can be read back
@@ -564,10 +563,6 @@ async def process_quadrant(gx, gy, rect, page, W_mm, H_mm, dpi):
             raise ValueError(f"Failed to render quadrant {label}: empty image data")
         
         quad_b64 = base64.b64encode(quad_png).decode("utf-8")
-        
-        # Validate base64 string
-        if not quad_b64:
-            raise ValueError(f"Failed to encode quadrant {label}: empty base64 string")
         
         # Passa as dimensões CORRETAS do quadrante (não da página completa)
         prompt_q = build_prompt(rect_w_mm, rect_h_mm, "quadrant", (ox, oy), label)
