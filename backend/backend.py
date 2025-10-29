@@ -202,6 +202,19 @@ def sanitize_for_json(obj: Any) -> Any:
         return obj
 
 
+def assign_no_tag_identifiers(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """
+    Assign sequential NO-TAG identifiers to equipment without valid tags.
+    Equipment with tag "N/A" will be renamed to "NO-TAG1", "NO-TAG2", etc.
+    """
+    no_tag_counter = 1
+    for item in items:
+        if item.get("tag") == "N/A":
+            item["tag"] = f"NO-TAG{no_tag_counter}"
+            no_tag_counter += 1
+    return items
+
+
 def dist_mm(a: Tuple[float, float], b: Tuple[float, float]) -> float:
     return math.hypot(a[0] - b[0], a[1] - b[1])
 
@@ -747,6 +760,16 @@ async def analyze_pdf(
     for page in all_pages:
         all_items.extend(page.get("resultado", []))
     
+    # Assign NO-TAG identifiers to equipment without valid tags
+    if all_items:
+        all_items = assign_no_tag_identifiers(all_items)
+        # Update pages with the modified items
+        item_idx = 0
+        for page in all_pages:
+            num_items = len(page.get("resultado", []))
+            page["resultado"] = all_items[item_idx:item_idx + num_items]
+            item_idx += num_items
+    
     if all_items:
         pid_id = f"analyzed_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
         pid_knowledge_base[pid_id] = {
@@ -1102,6 +1125,9 @@ async def generate_pid(
         
         # Remove duplicatas
         unique = dedup_items(result_items, page_num=1, tol_mm=50.0)
+        
+        # Assign NO-TAG identifiers to equipment without valid tags
+        unique = assign_no_tag_identifiers(unique)
         
         log_to_front(f"✅ Geração concluída: {len(unique)} itens únicos")
         
