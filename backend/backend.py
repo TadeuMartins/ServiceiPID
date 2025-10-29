@@ -185,6 +185,36 @@ def ensure_json_list(content: str) -> List[Any]:
     return []
 
 
+def sanitize_for_json(obj: Any) -> Any:
+    """
+    Recursively sanitize data structure to ensure all float values are JSON-compliant.
+    Replaces NaN and Infinity with 0.0.
+    """
+    if isinstance(obj, dict):
+        return {k: sanitize_for_json(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [sanitize_for_json(item) for item in obj]
+    elif isinstance(obj, float):
+        if math.isnan(obj) or math.isinf(obj):
+            return 0.0
+        return obj
+    else:
+        return obj
+
+
+def assign_no_tag_identifiers(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """
+    Assign sequential NO-TAG identifiers to equipment without valid tags.
+    Equipment with tag "N/A" will be renamed to "NO-TAG1", "NO-TAG2", etc.
+    """
+    no_tag_counter = 1
+    for item in items:
+        if item.get("tag") == "N/A":
+            item["tag"] = f"NO-TAG{no_tag_counter}"
+            no_tag_counter += 1
+    return items
+
+
 def dist_mm(a: Tuple[float, float], b: Tuple[float, float]) -> float:
     return math.hypot(a[0] - b[0], a[1] - b[1])
 
@@ -730,6 +760,16 @@ async def analyze_pdf(
     for page in all_pages:
         all_items.extend(page.get("resultado", []))
     
+    # Assign NO-TAG identifiers to equipment without valid tags
+    if all_items:
+        all_items = assign_no_tag_identifiers(all_items)
+        # Update pages with the modified items
+        item_idx = 0
+        for page in all_pages:
+            num_items = len(page.get("resultado", []))
+            page["resultado"] = all_items[item_idx:item_idx + num_items]
+            item_idx += num_items
+    
     if all_items:
         pid_id = f"analyzed_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
         pid_knowledge_base[pid_id] = {
@@ -754,6 +794,9 @@ async def analyze_pdf(
         # Adiciona pid_id ao response
         for page in all_pages:
             page["pid_id"] = pid_id
+    
+    # Sanitize all float values to ensure JSON compliance
+    all_pages = sanitize_for_json(all_pages)
     
     return JSONResponse(content=all_pages)
 
@@ -1083,6 +1126,9 @@ async def generate_pid(
         # Remove duplicatas
         unique = dedup_items(result_items, page_num=1, tol_mm=50.0)
         
+        # Assign NO-TAG identifiers to equipment without valid tags
+        unique = assign_no_tag_identifiers(unique)
+        
         log_to_front(f"✅ Geração concluída: {len(unique)} itens únicos")
         
         # Auto-armazena na base de conhecimento
@@ -1114,6 +1160,9 @@ async def generate_pid(
             "resultado": unique,
             "pid_id": pid_id
         }]
+        
+        # Sanitize all float values to ensure JSON compliance
+        response_data = sanitize_for_json(response_data)
         
         return JSONResponse(content=response_data)
         
@@ -1668,6 +1717,9 @@ async def store_pid_knowledge(
     
     if not data:
         raise HTTPException(status_code=400, detail="Dados do P&ID não fornecidos")
+    
+    # Sanitize data to prevent NaN/Infinity values
+    data = sanitize_for_json(data)
     
     pid_knowledge_base[pid_id] = {
         "data": data,

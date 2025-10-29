@@ -78,7 +78,22 @@ def embed_texts(texts):
 def cosine_similarity(a, b):
     a = np.array(a)
     b = np.array(b)
-    return np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b))
+    norm_a = np.linalg.norm(a)
+    norm_b = np.linalg.norm(b)
+    
+    # Handle edge cases: zero vectors or invalid norms
+    # Use a small epsilon for robust zero detection with floating-point numbers
+    eps = np.finfo(float).eps
+    if norm_a < eps or norm_b < eps or not np.isfinite(norm_a) or not np.isfinite(norm_b):
+        return 0.0
+    
+    similarity = np.dot(a, b) / (norm_a * norm_b)
+    
+    # Ensure the result is finite and within valid range
+    if not np.isfinite(similarity):
+        return 0.0
+    
+    return float(similarity)
 
 # --- Matcher principal ---
 def match_system_fullname(tag: str, descricao: str, tipo: str = "") -> dict:
