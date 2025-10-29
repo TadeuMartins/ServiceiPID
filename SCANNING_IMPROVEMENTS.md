@@ -44,7 +44,7 @@ preprocess_image_adaptive(img_bytes, method="grayscale")
 ```python
 preprocess_image_adaptive(img_bytes, method="hybrid")
 ```
-- **Adaptive thresholding**: Uses OpenCV's Gaussian adaptive threshold (block size=15)
+- **Adaptive thresholding**: Uses OpenCV's Gaussian adaptive threshold (block size=15, C constant=2)
 - **Morphological operations**: Light opening (2x2 kernel) to remove noise
 - **Conservative closing**: Connects nearby components without merging separate symbols
 - **Scale normalization**: Normalizes to target width before upscaling
@@ -337,7 +337,8 @@ POST /analyze
 
 1. **Install new dependencies**:
    ```bash
-   pip install opencv-python
+   cd backend
+   pip install -r requirements.txt
    ```
 
 2. **Test with default settings** (hybrid preprocessing + dynamic tolerance):
@@ -359,7 +360,7 @@ POST /analyze
 ### Known Issues
 
 1. **OpenCV dependency**: Requires `opencv-python` package
-   - Solution: Included in `requirements.txt`
+   - Solution: Run `pip install -r backend/requirements.txt` (already included)
 
 2. **Slightly longer processing time** with hybrid preprocessing
    - Solution: Configurable via API if speed is critical
