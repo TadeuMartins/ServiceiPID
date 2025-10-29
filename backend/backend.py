@@ -185,6 +185,23 @@ def ensure_json_list(content: str) -> List[Any]:
     return []
 
 
+def sanitize_for_json(obj: Any) -> Any:
+    """
+    Recursively sanitize data structure to ensure all float values are JSON-compliant.
+    Replaces NaN and Infinity with safe defaults (None or 0.0).
+    """
+    if isinstance(obj, dict):
+        return {k: sanitize_for_json(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [sanitize_for_json(item) for item in obj]
+    elif isinstance(obj, float):
+        if math.isnan(obj) or math.isinf(obj):
+            return 0.0
+        return obj
+    else:
+        return obj
+
+
 def dist_mm(a: Tuple[float, float], b: Tuple[float, float]) -> float:
     return math.hypot(a[0] - b[0], a[1] - b[1])
 
@@ -755,6 +772,9 @@ async def analyze_pdf(
         for page in all_pages:
             page["pid_id"] = pid_id
     
+    # Sanitize all float values to ensure JSON compliance
+    all_pages = sanitize_for_json(all_pages)
+    
     return JSONResponse(content=all_pages)
 
 
@@ -1114,6 +1134,9 @@ async def generate_pid(
             "resultado": unique,
             "pid_id": pid_id
         }]
+        
+        # Sanitize all float values to ensure JSON compliance
+        response_data = sanitize_for_json(response_data)
         
         return JSONResponse(content=response_data)
         
@@ -1668,6 +1691,9 @@ async def store_pid_knowledge(
     
     if not data:
         raise HTTPException(status_code=400, detail="Dados do P&ID não fornecidos")
+    
+    # Sanitize data to prevent NaN/Infinity values
+    data = sanitize_for_json(data)
     
     pid_knowledge_base[pid_id] = {
         "data": data,

@@ -78,7 +78,20 @@ def embed_texts(texts):
 def cosine_similarity(a, b):
     a = np.array(a)
     b = np.array(b)
-    return np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b))
+    norm_a = np.linalg.norm(a)
+    norm_b = np.linalg.norm(b)
+    
+    # Handle edge cases: zero vectors or invalid norms
+    if norm_a == 0 or norm_b == 0 or not np.isfinite(norm_a) or not np.isfinite(norm_b):
+        return 0.0
+    
+    similarity = np.dot(a, b) / (norm_a * norm_b)
+    
+    # Ensure the result is finite and within valid range
+    if not np.isfinite(similarity):
+        return 0.0
+    
+    return float(similarity)
 
 # --- Matcher principal ---
 def match_system_fullname(tag: str, descricao: str, tipo: str = "") -> dict:
@@ -96,6 +109,10 @@ def match_system_fullname(tag: str, descricao: str, tipo: str = "") -> dict:
         sims = [cosine_similarity(emb_q, emb_ref) for emb_ref in ref_embeddings]
         best_idx = int(np.argmax(sims))
         best_score = float(sims[best_idx])
+        
+        # Ensure best_score is JSON-compliant (not NaN or Infinity)
+        if not np.isfinite(best_score):
+            best_score = 0.0
 
         ref_row = df_ref.iloc[best_idx]
 
