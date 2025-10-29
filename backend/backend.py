@@ -293,8 +293,16 @@ def preprocess_image(img_bytes: bytes) -> bytes:
         img = ImageOps.invert(img)
     img = img.resize((img.width * 2, img.height * 2), Image.LANCZOS)
     out = io.BytesIO()
-    img.save(out, format="PNG")
-    return out.getvalue()
+    img.save(out, format="PNG", optimize=False)
+    result = out.getvalue()
+    
+    # Validate the PNG can be read back
+    try:
+        Image.open(io.BytesIO(result))
+    except Exception as e:
+        raise ValueError(f"Generated invalid PNG: {e}")
+    
+    return result
 
 
 def render_quadrant_png(page: fitz.Page, rect: fitz.Rect, dpi: int = 400) -> bytes:
@@ -302,9 +310,13 @@ def render_quadrant_png(page: fitz.Page, rect: fitz.Rect, dpi: int = 400) -> byt
         pix = page.get_pixmap(dpi=dpi, clip=rect)
         raw_bytes = pix.tobytes("png")
         processed_bytes = preprocess_image(raw_bytes)
+        if not processed_bytes or len(processed_bytes) == 0:
+            raise ValueError("Processed image is empty")
         return processed_bytes
-    except Exception:
-        return b""
+    except Exception as e:
+        log_to_front(f"   ⚠️ Erro ao renderizar quadrante: {type(e).__name__}: {e}")
+        traceback.print_exc()
+        raise
 
 
 # ============================================================
@@ -544,6 +556,11 @@ async def process_quadrant(gx, gy, rect, page, W_mm, H_mm, dpi):
     log_to_front(f"🔹 Quadrant {label} | origem ≈ ({ox:.1f}, {oy:.1f}) mm | dimensões ≈ ({rect_w_mm:.1f} x {rect_h_mm:.1f}) mm")
     try:
         quad_png = render_quadrant_png(page, rect, dpi=dpi)
+        
+        # Validate image data exists
+        if not quad_png or len(quad_png) == 0:
+            raise ValueError(f"Failed to render quadrant {label}: empty image data")
+        
         quad_b64 = base64.b64encode(quad_png).decode("utf-8")
         # Passa as dimensões CORRETAS do quadrante (não da página completa)
         prompt_q = build_prompt(rect_w_mm, rect_h_mm, "quadrant", (ox, oy), label)
