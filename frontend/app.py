@@ -196,14 +196,19 @@ if uploaded_file:
             # Excel
             tmp_excel = tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx")
             df.to_excel(tmp_excel.name, index=False)
+            tmp_excel.close()
             with open(tmp_excel.name, "rb") as f:
-                st.download_button(
-                    "💾 Baixar Excel",
-                    f,
-                    file_name=f"{safe_name}_analysis.xlsx",
-                    use_container_width=True
-                )
-            os.unlink(tmp_excel.name)
+                excel_data = f.read()
+            try:
+                os.unlink(tmp_excel.name)
+            except OSError:
+                pass  # File will be cleaned up by OS eventually
+            st.download_button(
+                "💾 Baixar Excel",
+                excel_data,
+                file_name=f"{safe_name}_analysis.xlsx",
+                use_container_width=True
+            )
 
             # ======== Preview PDF ========
             with st.expander("👁️ Pré-visualizar páginas anotadas"):
@@ -230,7 +235,10 @@ if uploaded_file:
                     ax.axis("off")
                     st.pyplot(fig)
                 doc.close()
-                os.unlink(tmp_pdf.name)
+                try:
+                    os.unlink(tmp_pdf.name)
+                except OSError:
+                    pass  # File will be cleaned up by OS eventually
 
             # ======== Raw JSON (debug opcional) ========
             with st.expander("📂 Ver JSON bruto do backend"):
@@ -342,14 +350,19 @@ if generate_button and prompt_text:
             # Excel
             tmp_excel = tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx")
             df.to_excel(tmp_excel.name, index=False)
+            tmp_excel.close()
             with open(tmp_excel.name, "rb") as f:
-                st.download_button(
-                    "💾 Baixar Excel",
-                    f,
-                    file_name=f"{safe_name}_gerado.xlsx",
+                excel_data = f.read()
+            try:
+                os.unlink(tmp_excel.name)
+            except OSError:
+                pass  # File will be cleaned up by OS eventually
+            st.download_button(
+                "💾 Baixar Excel",
+                excel_data,
+                file_name=f"{safe_name}_gerado.xlsx",
                 use_container_width=True
-                )
-            os.unlink(tmp_excel.name)
+            )
 
             # ======== Visualização 2D ========
             with st.expander("📐 Visualizar Layout (A0)"):
