@@ -299,9 +299,8 @@ def dedup_items(items: List[Dict[str, Any]], page_num: int, tol_mm: float = 10.0
 # SUBDIVISÃO EM QUADRANTES
 # ============================================================
 def page_quadrants(page: fitz.Page, grid_x: int = 3, grid_y: int = 3):
+    # Page is already in landscape orientation after rotation in analyze_pdf
     W, H = page.rect.width, page.rect.height
-    if H > W:
-        W, H = H, W
     quads = []
     for gy in range(grid_y):
         for gx in range(grid_x):
