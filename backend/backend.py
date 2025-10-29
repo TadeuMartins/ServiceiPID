@@ -1154,20 +1154,72 @@ def generate_process_description(pid_data: List[Dict[str, Any]], ultra_complete:
     # Monta o prompt para gerar descrição
     if ultra_complete:
         # Modo ULTRA-COMPLETO: inclui TODOS os equipamentos com coordenadas e conexões
+        # Primeiro, analisa os dados para criar informações estruturadas
+        
+        # Mapeia instrumentos por equipamento associado
+        instruments_by_equipment = {}
+        for inst in instrumentos:
+            from_tag = inst.get('from', 'N/A')
+            if from_tag != 'N/A':
+                if from_tag not in instruments_by_equipment:
+                    instruments_by_equipment[from_tag] = []
+                instruments_by_equipment[from_tag].append(inst)
+        
+        # Identifica equipamentos reserva (A/B, -1/-2, etc.)
+        backup_pairs = {}
+        for eq in equipamentos:
+            tag = eq.get('tag', '').strip()
+            # Remove sufixos A/B, -1/-2, etc. para agrupar
+            base_tag = tag.rstrip('AB12').rstrip('-').rstrip('/')
+            if base_tag and base_tag != tag:
+                if base_tag not in backup_pairs:
+                    backup_pairs[base_tag] = []
+                backup_pairs[base_tag].append(tag)
+        
+        # Monta mapa de fluxo (from → to)
+        flow_map = {}
+        for item in pid_data:
+            tag = item.get('tag', 'N/A')
+            from_tag = item.get('from', 'N/A')
+            to_tag = item.get('to', 'N/A')
+            if tag != 'N/A':
+                flow_map[tag] = {'from': from_tag, 'to': to_tag}
+        
         prompt = f"""Com base nos seguintes equipamentos e instrumentos identificados em um P&ID, gere uma descrição técnica ULTRA-COMPLETA e EXTREMAMENTE DETALHADA do processo industrial.
 
-IMPORTANTE: Esta descrição será usada como contexto para um chatbot responder perguntas. Inclua o MÁXIMO de detalhes possível sobre:
-- TODOS os equipamentos (não apenas os principais)
-- Função específica de cada equipamento
-- Conexões entre equipamentos (from/to)
-- Posicionamento espacial (coordenadas x_mm, y_mm)
-- Instrumentação completa com finalidade
-- Malhas de controle identificadas
-- Fluxo detalhado do processo
+INSTRUÇÕES CRÍTICAS:
+Esta descrição será a ÚNICA fonte de informação para um chatbot responder perguntas sobre o P&ID.
+Você DEVE incluir TODOS os detalhes específicos abaixo para cada equipamento e instrumento.
+
+DETALHES OBRIGATÓRIOS A INCLUIR:
+1. Para CADA equipamento principal:
+   - TAG completa e descrição
+   - Função específica no processo
+   - De onde recebe material (FROM) e para onde envia (TO)
+   - Coordenadas exatas (x_mm, y_mm)
+   - TODOS os instrumentos associados (pressão, temperatura, vazão, nível)
+   - Se é equipamento reserva/backup de outro (identificar pares A/B, -1/-2)
+
+2. Para CADA instrumento:
+   - TAG completa e tipo (PT, TT, FT, LT, etc.)
+   - Qual equipamento ele monitora/controla
+   - Tipo de medição (pressão, temperatura, vazão, nível, etc.)
+   - Se faz parte de malha de controle (identificar FCV, PCV, LCV, TCV)
+
+3. Fluxo do Processo:
+   - Caminho COMPLETO do material usando TAGs
+   - Ex: "O processo inicia em T-101 → P-101A (com P-101B como reserva) → FT-101 → FCV-101 → E-201"
+   - Derivações, by-passes, reciclos
+
+4. Instrumentação por Equipamento:
+   - Para cada equipamento, liste EXATAMENTE quais instrumentos estão associados
+   - Ex: "P-101A é monitorado por: PT-101 (pressão descarga), FT-101 (vazão), TT-101 (temperatura)"
+
+DADOS FORNECIDOS:
 
 EQUIPAMENTOS PRINCIPAIS ({len(equipamentos)} itens):
 """
-        # Inclui TODOS os equipamentos (não limita a 20)
+        # Inclui TODOS os equipamentos com detalhes completos
         for eq in equipamentos:
             tag = eq.get('tag', 'N/A')
             desc = eq.get('descricao', 'N/A')
@@ -1176,58 +1228,136 @@ EQUIPAMENTOS PRINCIPAIS ({len(equipamentos)} itens):
             x = eq.get('x_mm', 'N/A')
             y = eq.get('y_mm', 'N/A')
             
-            prompt += f"- {tag}: {desc}"
+            prompt += f"\n• {tag}: {desc}"
             if from_tag != 'N/A' or to_tag != 'N/A':
-                prompt += f" | Conexões: {from_tag} → {to_tag}"
+                prompt += f"\n  → Fluxo: {from_tag} ➜ {to_tag}"
             if x != 'N/A' and y != 'N/A':
-                prompt += f" | Posição: ({x}, {y}) mm"
-            prompt += "\n"
+                prompt += f"\n  → Posição: ({x}, {y}) mm"
+            
+            # Lista instrumentos associados a este equipamento
+            if tag in instruments_by_equipment:
+                insts = instruments_by_equipment[tag]
+                prompt += f"\n  → Instrumentos associados: {', '.join([i.get('tag', 'N/A') for i in insts])}"
+        
+        # Informação sobre equipamentos reserva
+        if backup_pairs:
+            prompt += f"\n\nEQUIPAMENTOS RESERVA/BACKUP identificados:"
+            for base, variants in backup_pairs.items():
+                if len(variants) > 1:
+                    prompt += f"\n• {base}: {' e '.join(variants)} (equipamentos redundantes)"
         
         prompt += f"""
+
 INSTRUMENTAÇÃO COMPLETA ({len(instrumentos)} itens):
 """
-        # Inclui TODOS os instrumentos (não limita a 30)
+        # Agrupa instrumentos por tipo
+        inst_by_type = {}
         for inst in instrumentos:
             tag = inst.get('tag', 'N/A')
-            desc = inst.get('descricao', 'N/A')
-            from_tag = inst.get('from', 'N/A')
-            to_tag = inst.get('to', 'N/A')
-            x = inst.get('x_mm', 'N/A')
-            y = inst.get('y_mm', 'N/A')
+            # Extrai tipo do instrumento (PT, TT, FT, etc.)
+            inst_type = tag.split('-')[0] if '-' in tag else tag[:2]
+            if inst_type not in inst_by_type:
+                inst_by_type[inst_type] = []
+            inst_by_type[inst_type].append(inst)
+        
+        # Lista por tipo para facilitar compreensão
+        for inst_type, insts in sorted(inst_by_type.items()):
+            type_name = {
+                'PT': 'Transmissores de Pressão',
+                'TT': 'Transmissores de Temperatura',
+                'FT': 'Transmissores de Vazão',
+                'LT': 'Transmissores de Nível',
+                'PI': 'Indicadores de Pressão',
+                'TI': 'Indicadores de Temperatura',
+                'FI': 'Indicadores de Vazão',
+                'LI': 'Indicadores de Nível',
+                'PSV': 'Válvulas de Segurança (Pressão)',
+                'FCV': 'Válvulas de Controle de Vazão',
+                'PCV': 'Válvulas de Controle de Pressão',
+                'TCV': 'Válvulas de Controle de Temperatura',
+                'LCV': 'Válvulas de Controle de Nível',
+            }.get(inst_type, f'Instrumentos tipo {inst_type}')
             
-            prompt += f"- {tag}: {desc}"
-            if from_tag != 'N/A':
-                prompt += f" | Associado a: {from_tag}"
-            if x != 'N/A' and y != 'N/A':
-                prompt += f" | Posição: ({x}, {y}) mm"
-            prompt += "\n"
+            prompt += f"\n{type_name}:"
+            for inst in insts:
+                tag = inst.get('tag', 'N/A')
+                desc = inst.get('descricao', 'N/A')
+                from_tag = inst.get('from', 'N/A')
+                x = inst.get('x_mm', 'N/A')
+                y = inst.get('y_mm', 'N/A')
+                
+                prompt += f"\n• {tag}: {desc}"
+                if from_tag != 'N/A':
+                    prompt += f" → Associado ao equipamento: {from_tag}"
+                if x != 'N/A' and y != 'N/A':
+                    prompt += f" [Pos: ({x}, {y}) mm]"
         
         prompt += """
-Por favor, forneça uma descrição ULTRA-DETALHADA estruturada incluindo:
 
-1. **Objetivo do Processo**: Propósito principal desta planta/sistema
-2. **Descrição Geral**: Visão geral do processo completo
-3. **Equipamentos Principais Detalhados**: 
-   - Lista TODOS os equipamentos principais (bombas, tanques, reatores, trocadores, etc.)
-   - Para CADA equipamento, descreva: função, conexões, posição no diagrama
-4. **Etapas do Processo em Sequência**: 
-   - Descreva o fluxo passo-a-passo
-   - Use as TAGs para indicar o caminho (ex: "Material sai de T-101 → P-101 → E-201")
-5. **Instrumentação e Controle Detalhados**:
-   - Liste TODOS os instrumentos por tipo (pressão, temperatura, vazão, nível)
-   - Para cada instrumento, indique o equipamento associado
-   - Identifique malhas de controle (FCV, PCV, LCV, TCV)
-6. **Elementos de Segurança**: 
-   - PSVs, alarmes, switches de segurança
-   - Localizações específicas
-7. **Conexões e Fluxo de Materiais**:
-   - Mapeie o fluxo completo usando as TAGs
-   - Indique derivações, by-passes, reciclos
+REQUISITOS PARA A DESCRIÇÃO ULTRA-COMPLETA:
+
+1. **Objetivo do Processo**: 
+   - Propósito principal desta planta/sistema
+   - Produto final ou objetivo operacional
+
+2. **Descrição Geral do Sistema**: 
+   - Visão overview do processo completo
+   - Principais seções/áreas do P&ID
+
+3. **Inventário Completo de Equipamentos**: 
+   - Liste TODOS os equipamentos por categoria (bombas, tanques, trocadores, etc.)
+   - Para CADA equipamento mencione:
+     * Função específica
+     * Conexões (de onde vem e para onde vai o material)
+     * Se tem equipamento reserva (ex: P-101A e P-101B são redundantes)
+     * Posição aproximada no diagrama (use coordenadas)
+
+4. **Instrumentação Detalhada por Equipamento**: 
+   - Para CADA equipamento principal, liste TODOS os instrumentos:
+     * Ex: "Bomba P-101A é instrumentada com:"
+       - PT-101: mede pressão de descarga
+       - FT-102: mede vazão na saída
+       - TT-103: monitora temperatura do fluido
+   - Identifique malhas de controle completas:
+     * Ex: "Malha de controle de vazão: FT-101 → FIC-101 → FCV-101"
+
+5. **Fluxo Detalhado do Processo (Passo-a-Passo)**:
+   - Descreva o caminho COMPLETO usando TAGs:
+     * Ex: "Material armazenado em T-101 é bombeado por P-101A (ou P-101B em standby) através de FCV-101 (controlada por FIC-101) para o trocador E-201..."
+   - Mencione todos os pontos de medição no caminho
+   - Indique by-passes, reciclos, derivações
+
+6. **Sistemas de Controle e Automação**:
+   - Liste todas as malhas de controle identificadas
+   - Para cada malha: sensor → controlador → atuador
+   - Alarmes e intertravamentos (switches de alta/baixa)
+
+7. **Elementos de Segurança**:
+   - Todas as PSVs (válvulas de segurança) e onde estão instaladas
+   - Switches de segurança (PSH, PSL, TSH, TSL, etc.)
+   - Sistemas de proteção
+
 8. **Layout e Distribuição Espacial**:
-   - Mencione agrupamentos de equipamentos por região
-   - Use coordenadas para contextualizar posições relativas
+   - Descreva onde estão os equipamentos usando coordenadas
+   - Agrupe equipamentos por região/área
+   - Ex: "Na região esquerda (X: 100-300mm) encontram-se os tanques de alimentação..."
 
-Seja EXTREMAMENTE técnico, específico e completo. Esta descrição precisa ser suficientemente detalhada para que um chatbot possa responder qualquer pergunta sobre o P&ID sem precisar da imagem."""
+9. **Relações e Dependências**:
+   - Equipamentos reserva e sua relação (A/B, standby)
+   - Instrumentos compartilhados entre equipamentos
+   - Interdependências operacionais
+
+IMPORTANTE: 
+- Use as TAGs EXATAS fornecidas acima
+- Seja EXTREMAMENTE específico sobre qual instrumento monitora qual equipamento
+- Descreva o fluxo usando as conexões FROM/TO fornecidas
+- Mencione TODOS os equipamentos e instrumentos, não omita nenhum
+- Esta descrição precisa ser tão completa que o chatbot possa responder perguntas como:
+  * "Qual instrumento mede a pressão da bomba P-101?"
+  * "Qual equipamento é reserva do P-101A?"
+  * "Qual é o fluxo do material desde T-101 até E-201?"
+  * "Onde está localizado o instrumento FT-101?"
+"""
     else:
         # Modo normal (mais resumido)
         prompt = f"""Com base nos seguintes equipamentos e instrumentos identificados em um P&ID, gere uma descrição técnica completa e detalhada do processo industrial:
@@ -1287,10 +1417,12 @@ Seja técnico e específico, usando terminologia da engenharia de processos."""
 @app.get("/describe")
 async def describe_pid(
     pid_id: str = Query(..., description="ID do P&ID a ser descrito"),
-    ultra_complete: bool = Query(True, description="Gerar descrição ultra-completa (padrão: True)")
+    regenerate: bool = Query(False, description="Forçar regeneração da descrição (padrão: False)")
 ):
     """
-    Gera uma descrição completa do P&ID baseada na base de conhecimento.
+    Retorna a descrição completa do P&ID baseada na base de conhecimento.
+    Por padrão, retorna a descrição ultra-completa que já foi gerada.
+    Use regenerate=true apenas se quiser forçar regeneração.
     """
     if not OPENAI_API_KEY:
         raise HTTPException(status_code=400, detail="OPENAI_API_KEY não definida")
@@ -1299,17 +1431,23 @@ async def describe_pid(
         raise HTTPException(status_code=404, detail=f"P&ID '{pid_id}' não encontrado na base de conhecimento")
     
     pid_info = pid_knowledge_base[pid_id]
-    description = generate_process_description(pid_info.get("data", []), ultra_complete=ultra_complete)
+    description = pid_info.get("description", "")
     
-    # Atualiza a base de conhecimento com a descrição
-    pid_knowledge_base[pid_id]["description"] = description
+    # Só regenera se forçado OU se não existe descrição
+    if regenerate or not description:
+        log_to_front(f"🔄 {'Regenerando' if regenerate else 'Gerando'} descrição ultra-completa...")
+        description = generate_process_description(pid_info.get("data", []), ultra_complete=True)
+        # Atualiza a base de conhecimento com a descrição
+        pid_knowledge_base[pid_id]["description"] = description
+    else:
+        log_to_front(f"📖 Retornando descrição ultra-completa existente (já foi gerada)")
     
     return JSONResponse(content={
         "pid_id": pid_id,
         "description": description,
         "equipment_count": len(pid_info.get("data", [])),
         "timestamp": pid_info.get("timestamp", ""),
-        "ultra_complete": ultra_complete
+        "regenerated": regenerate
     })
 
 
@@ -1404,47 +1542,35 @@ Se a informação visual for relevante, use-a. Referencie equipamentos por suas 
 
 async def chat_with_text(pid_id: str, question: str, pid_info: Dict[str, Any]) -> str:
     """
-    Responde pergunta usando o modo TEXTO - usa descrição ultra-completa + lista de equipamentos.
+    Responde pergunta usando o modo TEXTO - usa descrição ultra-completa que já foi gerada.
+    A descrição ultra-completa contém TODOS os detalhes: equipamentos, instrumentos, conexões, coordenadas.
     """
-    pid_data = pid_info.get("data", [])
     description = pid_info.get("description", "")
     
-    # Monta contexto ULTRA-COMPLETO
+    if not description:
+        log_to_front(f"⚠️ Descrição ultra-completa não encontrada para {pid_id}")
+        # Fallback: gera agora se não existir
+        pid_data = pid_info.get("data", [])
+        description = generate_process_description(pid_data, ultra_complete=True)
+        pid_knowledge_base[pid_id]["description"] = description
+        log_to_front(f"📝 Descrição ultra-completa gerada agora como fallback")
+    
+    # Monta contexto usando APENAS a descrição ultra-completa
+    # (que já contém todos os equipamentos, instrumentos, coordenadas e conexões)
     context = f"""Você é um assistente especializado em P&ID (Piping and Instrumentation Diagram). 
-Você tem acesso aos seguintes dados sobre o P&ID '{pid_id}':
+Você tem acesso à descrição ultra-completa do P&ID '{pid_id}':
 
-DESCRIÇÃO ULTRA-COMPLETA DO PROCESSO:
-{description if description else "Descrição não gerada ainda."}
+{description}
 
-LISTA COMPLETA DE EQUIPAMENTOS E INSTRUMENTOS ({len(pid_data)} itens):
-"""
-    
-    # Inclui TODOS os equipamentos (não limita mais a 50)
-    for item in pid_data:
-        tag = item.get('tag', 'N/A')
-        desc = item.get('descricao', 'N/A')
-        from_tag = item.get('from', 'N/A')
-        to_tag = item.get('to', 'N/A')
-        x = item.get('x_mm', 'N/A')
-        y = item.get('y_mm', 'N/A')
-        
-        context += f"- {tag}: {desc}"
-        if from_tag != 'N/A' or to_tag != 'N/A':
-            context += f" | Fluxo: {from_tag} → {to_tag}"
-        if x != 'N/A' and y != 'N/A':
-            context += f" | Posição: ({x}, {y}) mm"
-        context += "\n"
-    
-    context += f"""
 PERGUNTA DO USUÁRIO:
 {question}
 
 Por favor, responda de forma clara, técnica e específica baseando-se nas informações fornecidas acima. 
-Use as TAGs dos equipamentos e as informações de conexões para contextualizar sua resposta.
+Use as TAGs dos equipamentos para contextualizar sua resposta.
 Se a informação solicitada não estiver disponível, indique isso claramente."""
     
     try:
-        log_to_front(f"📝 Usando MODO TEXTO (ultra-completo) para responder pergunta")
+        log_to_front(f"📝 Usando MODO TEXTO (descrição ultra-completa pré-gerada)")
         
         global client
         resp = client.chat.completions.create(
@@ -1458,7 +1584,7 @@ Se a informação solicitada não estiver disponível, indique isso claramente."
         )
         
         answer = resp.choices[0].message.content if resp and resp.choices else "Erro ao gerar resposta"
-        log_to_front("✅ Resposta gerada usando TEXTO ultra-completo")
+        log_to_front("✅ Resposta gerada usando descrição ultra-completa (sem reprocessamento)")
         
         return answer
         
