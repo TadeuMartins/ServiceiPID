@@ -71,6 +71,12 @@ progress_messages: List[str] = []
 # ============================================================
 pid_knowledge_base: Dict[str, Dict[str, Any]] = {}
 
+# Configuração do modo do chatbot
+# "text" = usa descrição ultra-completa + lista de equipamentos (mais rápido, mais barato)
+# "vision" = envia imagem do P&ID com cada pergunta (mais preciso, mais caro)
+# "hybrid" = decide automaticamente baseado no tipo de pergunta
+CHATBOT_MODE = os.getenv("CHATBOT_MODE", "hybrid")
+
 
 def log_to_front(msg: str) -> None:
     print(msg, flush=True)
@@ -731,15 +737,17 @@ async def analyze_pdf(
             "timestamp": datetime.now().isoformat(),
             "description": "",
             "source": "analyze",
-            "filename": file.filename if hasattr(file, 'filename') else "unknown"
+            "filename": file.filename if hasattr(file, 'filename') else "unknown",
+            "pdf_data": data,  # Armazena PDF original para modo vision
+            "page_count": len(all_pages)
         }
         log_to_front(f"💾 P&ID armazenado como '{pid_id}' ({len(all_items)} itens)")
         
-        # Gera descrição automática
+        # Gera descrição automática ULTRA-COMPLETA
         try:
-            description = generate_process_description(all_items)
+            description = generate_process_description(all_items, ultra_complete=True)
             pid_knowledge_base[pid_id]["description"] = description
-            log_to_front(f"📝 Descrição do processo gerada automaticamente")
+            log_to_front(f"📝 Descrição ultra-completa do processo gerada automaticamente")
         except Exception as e:
             log_to_front(f"⚠️ Não foi possível gerar descrição: {e}")
         
@@ -1085,15 +1093,17 @@ async def generate_pid(
             "timestamp": datetime.now().isoformat(),
             "description": "",
             "source": "generate",
-            "original_prompt": prompt
+            "original_prompt": prompt,
+            "pdf_data": None,  # P&IDs gerados não têm PDF original
+            "page_count": 1
         }
         log_to_front(f"💾 P&ID armazenado como '{pid_id}' ({len(unique)} itens)")
         
-        # Gera descrição automática
+        # Gera descrição automática ULTRA-COMPLETA
         try:
-            description = generate_process_description(unique)
+            description = generate_process_description(unique, ultra_complete=True)
             pid_knowledge_base[pid_id]["description"] = description
-            log_to_front(f"📝 Descrição do processo gerada automaticamente")
+            log_to_front(f"📝 Descrição ultra-completa do processo gerada automaticamente")
         except Exception as e:
             log_to_front(f"⚠️ Não foi possível gerar descrição: {e}")
         
@@ -1116,9 +1126,13 @@ async def generate_pid(
 # ============================================================
 # GERAÇÃO DE DESCRIÇÃO DO PROCESSO
 # ============================================================
-def generate_process_description(pid_data: List[Dict[str, Any]]) -> str:
+def generate_process_description(pid_data: List[Dict[str, Any]], ultra_complete: bool = False) -> str:
     """
     Gera uma descrição completa do P&ID baseada nos equipamentos identificados.
+    
+    Args:
+        pid_data: Lista de equipamentos e instrumentos do P&ID
+        ultra_complete: Se True, gera descrição MUITO mais detalhada incluindo TODOS os equipamentos
     """
     if not pid_data:
         return "Nenhum equipamento identificado."
@@ -1138,28 +1152,234 @@ def generate_process_description(pid_data: List[Dict[str, Any]]) -> str:
             equipamentos.append(item)
     
     # Monta o prompt para gerar descrição
-    prompt = f"""Com base nos seguintes equipamentos e instrumentos identificados em um P&ID, gere uma descrição técnica completa e detalhada do processo industrial:
+    if ultra_complete:
+        # Modo ULTRA-COMPLETO: inclui TODOS os equipamentos com coordenadas e conexões
+        # Primeiro, analisa os dados para criar informações estruturadas
+        
+        # Mapeia instrumentos por equipamento associado
+        instruments_by_equipment = {}
+        for inst in instrumentos:
+            from_tag = inst.get('from', 'N/A')
+            if from_tag != 'N/A':
+                if from_tag not in instruments_by_equipment:
+                    instruments_by_equipment[from_tag] = []
+                instruments_by_equipment[from_tag].append(inst)
+        
+        # Identifica equipamentos reserva (A/B, -1/-2, etc.)
+        backup_pairs = {}
+        for eq in equipamentos:
+            tag = eq.get('tag', '').strip()
+            # Remove sufixos A/B, -1/-2, etc. para agrupar
+            base_tag = tag.rstrip('AB12').rstrip('-').rstrip('/')
+            if base_tag and base_tag != tag:
+                if base_tag not in backup_pairs:
+                    backup_pairs[base_tag] = []
+                backup_pairs[base_tag].append(tag)
+        
+        # Monta mapa de fluxo (from → to)
+        flow_map = {}
+        for item in pid_data:
+            tag = item.get('tag', 'N/A')
+            from_tag = item.get('from', 'N/A')
+            to_tag = item.get('to', 'N/A')
+            if tag != 'N/A':
+                flow_map[tag] = {'from': from_tag, 'to': to_tag}
+        
+        prompt = f"""Com base nos seguintes equipamentos e instrumentos identificados em um P&ID, gere uma descrição técnica ULTRA-COMPLETA e EXTREMAMENTE DETALHADA do processo industrial.
+
+INSTRUÇÕES CRÍTICAS:
+Esta descrição será a ÚNICA fonte de informação para um chatbot responder perguntas sobre o P&ID.
+Você DEVE incluir TODOS os detalhes específicos abaixo para cada equipamento e instrumento.
+
+DETALHES OBRIGATÓRIOS A INCLUIR:
+1. Para CADA equipamento principal:
+   - TAG completa e descrição
+   - Função específica no processo
+   - De onde recebe material (FROM) e para onde envia (TO)
+   - Coordenadas exatas (x_mm, y_mm)
+   - TODOS os instrumentos associados (pressão, temperatura, vazão, nível)
+   - Se é equipamento reserva/backup de outro (identificar pares A/B, -1/-2)
+
+2. Para CADA instrumento:
+   - TAG completa e tipo (PT, TT, FT, LT, etc.)
+   - Qual equipamento ele monitora/controla
+   - Tipo de medição (pressão, temperatura, vazão, nível, etc.)
+   - Se faz parte de malha de controle (identificar FCV, PCV, LCV, TCV)
+
+3. Fluxo do Processo:
+   - Caminho COMPLETO do material usando TAGs
+   - Ex: "O processo inicia em T-101 → P-101A (com P-101B como reserva) → FT-101 → FCV-101 → E-201"
+   - Derivações, by-passes, reciclos
+
+4. Instrumentação por Equipamento:
+   - Para cada equipamento, liste EXATAMENTE quais instrumentos estão associados
+   - Ex: "P-101A é monitorado por: PT-101 (pressão descarga), FT-101 (vazão), TT-101 (temperatura)"
+
+DADOS FORNECIDOS:
 
 EQUIPAMENTOS PRINCIPAIS ({len(equipamentos)} itens):
 """
-    
-    for eq in equipamentos[:20]:  # Limita para não exceder token limit
-        prompt += f"- {eq.get('tag', 'N/A')}: {eq.get('descricao', 'N/A')}\n"
-    
-    if len(equipamentos) > 20:
-        prompt += f"... e mais {len(equipamentos) - 20} equipamentos\n"
-    
-    prompt += f"""
+        # Inclui TODOS os equipamentos com detalhes completos
+        for eq in equipamentos:
+            tag = eq.get('tag', 'N/A')
+            desc = eq.get('descricao', 'N/A')
+            from_tag = eq.get('from', 'N/A')
+            to_tag = eq.get('to', 'N/A')
+            x = eq.get('x_mm', 'N/A')
+            y = eq.get('y_mm', 'N/A')
+            
+            prompt += f"\n• {tag}: {desc}"
+            if from_tag != 'N/A' or to_tag != 'N/A':
+                prompt += f"\n  → Fluxo: {from_tag} ➜ {to_tag}"
+            if x != 'N/A' and y != 'N/A':
+                prompt += f"\n  → Posição: ({x}, {y}) mm"
+            
+            # Lista instrumentos associados a este equipamento
+            if tag in instruments_by_equipment:
+                insts = instruments_by_equipment[tag]
+                prompt += f"\n  → Instrumentos associados: {', '.join([i.get('tag', 'N/A') for i in insts])}"
+        
+        # Informação sobre equipamentos reserva
+        if backup_pairs:
+            prompt += f"\n\nEQUIPAMENTOS RESERVA/BACKUP identificados:"
+            for base, variants in backup_pairs.items():
+                if len(variants) > 1:
+                    prompt += f"\n• {base}: {' e '.join(variants)} (equipamentos redundantes)"
+        
+        prompt += f"""
+
+INSTRUMENTAÇÃO COMPLETA ({len(instrumentos)} itens):
+"""
+        # Agrupa instrumentos por tipo
+        inst_by_type = {}
+        for inst in instrumentos:
+            tag = inst.get('tag', 'N/A')
+            # Extrai tipo do instrumento (PT, TT, FT, etc.)
+            inst_type = tag.split('-')[0] if '-' in tag else tag[:2]
+            if inst_type not in inst_by_type:
+                inst_by_type[inst_type] = []
+            inst_by_type[inst_type].append(inst)
+        
+        # Lista por tipo para facilitar compreensão
+        for inst_type, insts in sorted(inst_by_type.items()):
+            type_name = {
+                'PT': 'Transmissores de Pressão',
+                'TT': 'Transmissores de Temperatura',
+                'FT': 'Transmissores de Vazão',
+                'LT': 'Transmissores de Nível',
+                'PI': 'Indicadores de Pressão',
+                'TI': 'Indicadores de Temperatura',
+                'FI': 'Indicadores de Vazão',
+                'LI': 'Indicadores de Nível',
+                'PSV': 'Válvulas de Segurança (Pressão)',
+                'FCV': 'Válvulas de Controle de Vazão',
+                'PCV': 'Válvulas de Controle de Pressão',
+                'TCV': 'Válvulas de Controle de Temperatura',
+                'LCV': 'Válvulas de Controle de Nível',
+            }.get(inst_type, f'Instrumentos tipo {inst_type}')
+            
+            prompt += f"\n{type_name}:"
+            for inst in insts:
+                tag = inst.get('tag', 'N/A')
+                desc = inst.get('descricao', 'N/A')
+                from_tag = inst.get('from', 'N/A')
+                x = inst.get('x_mm', 'N/A')
+                y = inst.get('y_mm', 'N/A')
+                
+                prompt += f"\n• {tag}: {desc}"
+                if from_tag != 'N/A':
+                    prompt += f" → Associado ao equipamento: {from_tag}"
+                if x != 'N/A' and y != 'N/A':
+                    prompt += f" [Pos: ({x}, {y}) mm]"
+        
+        prompt += """
+
+REQUISITOS PARA A DESCRIÇÃO ULTRA-COMPLETA:
+
+1. **Objetivo do Processo**: 
+   - Propósito principal desta planta/sistema
+   - Produto final ou objetivo operacional
+
+2. **Descrição Geral do Sistema**: 
+   - Visão overview do processo completo
+   - Principais seções/áreas do P&ID
+
+3. **Inventário Completo de Equipamentos**: 
+   - Liste TODOS os equipamentos por categoria (bombas, tanques, trocadores, etc.)
+   - Para CADA equipamento mencione:
+     * Função específica
+     * Conexões (de onde vem e para onde vai o material)
+     * Se tem equipamento reserva (ex: P-101A e P-101B são redundantes)
+     * Posição aproximada no diagrama (use coordenadas)
+
+4. **Instrumentação Detalhada por Equipamento**: 
+   - Para CADA equipamento principal, liste TODOS os instrumentos:
+     * Ex: "Bomba P-101A é instrumentada com:"
+       - PT-101: mede pressão de descarga
+       - FT-102: mede vazão na saída
+       - TT-103: monitora temperatura do fluido
+   - Identifique malhas de controle completas:
+     * Ex: "Malha de controle de vazão: FT-101 → FIC-101 → FCV-101"
+
+5. **Fluxo Detalhado do Processo (Passo-a-Passo)**:
+   - Descreva o caminho COMPLETO usando TAGs:
+     * Ex: "Material armazenado em T-101 é bombeado por P-101A (ou P-101B em standby) através de FCV-101 (controlada por FIC-101) para o trocador E-201..."
+   - Mencione todos os pontos de medição no caminho
+   - Indique by-passes, reciclos, derivações
+
+6. **Sistemas de Controle e Automação**:
+   - Liste todas as malhas de controle identificadas
+   - Para cada malha: sensor → controlador → atuador
+   - Alarmes e intertravamentos (switches de alta/baixa)
+
+7. **Elementos de Segurança**:
+   - Todas as PSVs (válvulas de segurança) e onde estão instaladas
+   - Switches de segurança (PSH, PSL, TSH, TSL, etc.)
+   - Sistemas de proteção
+
+8. **Layout e Distribuição Espacial**:
+   - Descreva onde estão os equipamentos usando coordenadas
+   - Agrupe equipamentos por região/área
+   - Ex: "Na região esquerda (X: 100-300mm) encontram-se os tanques de alimentação..."
+
+9. **Relações e Dependências**:
+   - Equipamentos reserva e sua relação (A/B, standby)
+   - Instrumentos compartilhados entre equipamentos
+   - Interdependências operacionais
+
+IMPORTANTE: 
+- Use as TAGs EXATAS fornecidas acima
+- Seja EXTREMAMENTE específico sobre qual instrumento monitora qual equipamento
+- Descreva o fluxo usando as conexões FROM/TO fornecidas
+- Mencione TODOS os equipamentos e instrumentos, não omita nenhum
+- Esta descrição precisa ser tão completa que o chatbot possa responder perguntas como:
+  * "Qual instrumento mede a pressão da bomba P-101?"
+  * "Qual equipamento é reserva do P-101A?"
+  * "Qual é o fluxo do material desde T-101 até E-201?"
+  * "Onde está localizado o instrumento FT-101?"
+"""
+    else:
+        # Modo normal (mais resumido)
+        prompt = f"""Com base nos seguintes equipamentos e instrumentos identificados em um P&ID, gere uma descrição técnica completa e detalhada do processo industrial:
+
+EQUIPAMENTOS PRINCIPAIS ({len(equipamentos)} itens):
+"""
+        for eq in equipamentos[:20]:  # Limita para não exceder token limit
+            prompt += f"- {eq.get('tag', 'N/A')}: {eq.get('descricao', 'N/A')}\n"
+        
+        if len(equipamentos) > 20:
+            prompt += f"... e mais {len(equipamentos) - 20} equipamentos\n"
+        
+        prompt += f"""
 INSTRUMENTAÇÃO ({len(instrumentos)} itens):
 """
-    
-    for inst in instrumentos[:30]:
-        prompt += f"- {inst.get('tag', 'N/A')}: {inst.get('descricao', 'N/A')}\n"
-    
-    if len(instrumentos) > 30:
-        prompt += f"... e mais {len(instrumentos) - 30} instrumentos\n"
-    
-    prompt += """
+        for inst in instrumentos[:30]:
+            prompt += f"- {inst.get('tag', 'N/A')}: {inst.get('descricao', 'N/A')}\n"
+        
+        if len(instrumentos) > 30:
+            prompt += f"... e mais {len(instrumentos) - 30} instrumentos\n"
+        
+        prompt += """
 Por favor, forneça uma descrição estruturada incluindo:
 1. **Objetivo do Processo**: Qual é o propósito principal desta planta/sistema
 2. **Etapas do Processo**: Descreva as principais etapas em sequência lógica
@@ -1171,7 +1391,7 @@ Por favor, forneça uma descrição estruturada incluindo:
 Seja técnico e específico, usando terminologia da engenharia de processos."""
     
     try:
-        log_to_front("🤖 Gerando descrição do processo...")
+        log_to_front(f"🤖 Gerando descrição {'ULTRA-COMPLETA' if ultra_complete else 'do processo'}...")
         
         global client
         resp = client.chat.completions.create(
@@ -1185,7 +1405,7 @@ Seja técnico e específico, usando terminologia da engenharia de processos."""
         )
         
         description = resp.choices[0].message.content if resp and resp.choices else "Erro ao gerar descrição"
-        log_to_front("✅ Descrição do processo gerada")
+        log_to_front(f"✅ Descrição {'ULTRA-COMPLETA' if ultra_complete else ''} do processo gerada")
         
         return description
         
@@ -1195,9 +1415,14 @@ Seja técnico e específico, usando terminologia da engenharia de processos."""
 
 
 @app.get("/describe")
-async def describe_pid(pid_id: str = Query(..., description="ID do P&ID a ser descrito")):
+async def describe_pid(
+    pid_id: str = Query(..., description="ID do P&ID a ser descrito"),
+    regenerate: bool = Query(False, description="Forçar regeneração da descrição (padrão: False)")
+):
     """
-    Gera uma descrição completa do P&ID baseada na base de conhecimento.
+    Retorna a descrição completa do P&ID baseada na base de conhecimento.
+    Por padrão, retorna a descrição ultra-completa que já foi gerada.
+    Use regenerate=true apenas se quiser forçar regeneração.
     """
     if not OPENAI_API_KEY:
         raise HTTPException(status_code=400, detail="OPENAI_API_KEY não definida")
@@ -1206,29 +1431,181 @@ async def describe_pid(pid_id: str = Query(..., description="ID do P&ID a ser de
         raise HTTPException(status_code=404, detail=f"P&ID '{pid_id}' não encontrado na base de conhecimento")
     
     pid_info = pid_knowledge_base[pid_id]
-    description = generate_process_description(pid_info.get("data", []))
+    description = pid_info.get("description", "")
     
-    # Atualiza a base de conhecimento com a descrição
-    pid_knowledge_base[pid_id]["description"] = description
+    # Só regenera se forçado OU se não existe descrição
+    if regenerate or not description:
+        log_to_front(f"🔄 {'Regenerando' if regenerate else 'Gerando'} descrição ultra-completa...")
+        description = generate_process_description(pid_info.get("data", []), ultra_complete=True)
+        # Atualiza a base de conhecimento com a descrição
+        pid_knowledge_base[pid_id]["description"] = description
+    else:
+        log_to_front(f"📖 Retornando descrição ultra-completa existente (já foi gerada)")
     
     return JSONResponse(content={
         "pid_id": pid_id,
         "description": description,
         "equipment_count": len(pid_info.get("data", [])),
-        "timestamp": pid_info.get("timestamp", "")
+        "timestamp": pid_info.get("timestamp", ""),
+        "regenerated": regenerate
     })
 
 
 # ============================================================
-# CHATBOT Q&A
+# CHATBOT Q&A - MODO HÍBRIDO COM SUPORTE A VISION
 # ============================================================
+def should_use_vision_mode(question: str) -> bool:
+    """
+    Determina se a pergunta requer modo vision (análise visual do P&ID).
+    
+    Perguntas sobre layout, posicionamento, visual, símbolos, etc. se beneficiam de vision.
+    Perguntas sobre função, fluxo, lista de equipamentos funcionam bem com texto.
+    """
+    vision_keywords = [
+        "onde", "posição", "localiz", "coordenada", "layout", "espaço", "distribuição",
+        "visual", "símbol", "diagrama", "desenho", "aparência", "próxim", "distân",
+        "esquerda", "direita", "acima", "abaixo", "topo", "base", "centro",
+        "região", "área", "zona", "quadrante"
+    ]
+    
+    question_lower = question.lower()
+    return any(keyword in question_lower for keyword in vision_keywords)
+
+
+async def chat_with_vision(pid_id: str, question: str, pid_info: Dict[str, Any]) -> str:
+    """
+    Responde pergunta usando o modo VISION - envia imagem(ns) do P&ID para GPT-4V.
+    """
+    pdf_data = pid_info.get("pdf_data")
+    
+    if not pdf_data:
+        # Fallback para modo texto se não houver PDF
+        log_to_front(f"⚠️ PDF não disponível para {pid_id}, usando modo texto")
+        return await chat_with_text(pid_id, question, pid_info)
+    
+    try:
+        log_to_front(f"🖼️ Usando MODO VISION para responder pergunta")
+        
+        # Abre o PDF e renderiza páginas
+        doc = fitz.open(stream=pdf_data, filetype="pdf")
+        
+        # Para perguntas gerais, usa a primeira página
+        # Para P&IDs multipáginas, poderia processar todas
+        page = doc[0]
+        pix = page.get_pixmap(dpi=200)  # Resolução menor para economizar tokens
+        img_bytes = pix.tobytes("png")
+        img_b64 = base64.b64encode(img_bytes).decode("utf-8")
+        
+        # Prepara contexto com descrição + imagem
+        pid_data = pid_info.get("data", [])
+        description = pid_info.get("description", "")
+        
+        prompt = f"""Você é um assistente especializado em P&ID (Piping and Instrumentation Diagram).
+
+Você tem acesso a:
+1. A IMAGEM do P&ID (anexada)
+2. Descrição do processo: {description[:500]}...
+3. {len(pid_data)} equipamentos/instrumentos identificados
+
+PERGUNTA DO USUÁRIO:
+{question}
+
+Por favor, analise a IMAGEM do P&ID junto com a descrição e responda de forma clara, técnica e específica.
+Se a informação visual for relevante, use-a. Referencie equipamentos por suas TAGs quando possível."""
+        
+        global client
+        resp = client.chat.completions.create(
+            model=FALLBACK_MODEL,  # gpt-4o suporta vision
+            messages=[{
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": prompt},
+                    {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{img_b64}"}}
+                ]
+            }],
+            temperature=0.5,
+            timeout=OPENAI_REQUEST_TIMEOUT
+        )
+        
+        answer = resp.choices[0].message.content if resp and resp.choices else "Erro ao gerar resposta"
+        log_to_front("✅ Resposta gerada usando VISION")
+        
+        doc.close()
+        return answer
+        
+    except Exception as e:
+        log_to_front(f"❌ Erro no modo vision: {e}")
+        # Fallback para modo texto
+        log_to_front("🔄 Tentando modo texto como fallback")
+        return await chat_with_text(pid_id, question, pid_info)
+
+
+async def chat_with_text(pid_id: str, question: str, pid_info: Dict[str, Any]) -> str:
+    """
+    Responde pergunta usando o modo TEXTO - usa descrição ultra-completa que já foi gerada.
+    A descrição ultra-completa contém TODOS os detalhes: equipamentos, instrumentos, conexões, coordenadas.
+    """
+    description = pid_info.get("description", "")
+    
+    if not description:
+        log_to_front(f"⚠️ Descrição ultra-completa não encontrada para {pid_id}")
+        # Fallback: gera agora se não existir
+        pid_data = pid_info.get("data", [])
+        description = generate_process_description(pid_data, ultra_complete=True)
+        pid_knowledge_base[pid_id]["description"] = description
+        log_to_front(f"📝 Descrição ultra-completa gerada agora como fallback")
+    
+    # Monta contexto usando APENAS a descrição ultra-completa
+    # (que já contém todos os equipamentos, instrumentos, coordenadas e conexões)
+    context = f"""Você é um assistente especializado em P&ID (Piping and Instrumentation Diagram). 
+Você tem acesso à descrição ultra-completa do P&ID '{pid_id}':
+
+{description}
+
+PERGUNTA DO USUÁRIO:
+{question}
+
+Por favor, responda de forma clara, técnica e específica baseando-se nas informações fornecidas acima. 
+Use as TAGs dos equipamentos para contextualizar sua resposta.
+Se a informação solicitada não estiver disponível, indique isso claramente."""
+    
+    try:
+        log_to_front(f"📝 Usando MODO TEXTO (descrição ultra-completa pré-gerada)")
+        
+        global client
+        resp = client.chat.completions.create(
+            model=FALLBACK_MODEL,
+            messages=[{
+                "role": "user",
+                "content": context
+            }],
+            temperature=0.5,
+            timeout=OPENAI_REQUEST_TIMEOUT
+        )
+        
+        answer = resp.choices[0].message.content if resp and resp.choices else "Erro ao gerar resposta"
+        log_to_front("✅ Resposta gerada usando descrição ultra-completa (sem reprocessamento)")
+        
+        return answer
+        
+    except Exception as e:
+        log_to_front(f"❌ Erro no modo texto: {e}")
+        raise
+
+
 @app.post("/chat")
 async def chat_about_pid(
     pid_id: str = Query(..., description="ID do P&ID"),
-    question: str = Query(..., description="Pergunta sobre o P&ID")
+    question: str = Query(..., description="Pergunta sobre o P&ID"),
+    mode: str = Query(None, description="Modo: 'text', 'vision' ou None para automático (hybrid)")
 ):
     """
     Responde perguntas sobre um P&ID específico usando a base de conhecimento.
+    
+    Modos disponíveis:
+    - 'text': Usa descrição ultra-completa + lista completa de equipamentos (mais rápido, mais barato)
+    - 'vision': Envia imagem do P&ID para análise visual (mais preciso para perguntas visuais, mais caro)
+    - None (padrão): Modo híbrido - decide automaticamente baseado na pergunta
     """
     if not OPENAI_API_KEY:
         raise HTTPException(status_code=400, detail="OPENAI_API_KEY não definida")
@@ -1240,59 +1617,34 @@ async def chat_about_pid(
         raise HTTPException(status_code=404, detail=f"P&ID '{pid_id}' não encontrado. Execute análise ou geração primeiro.")
     
     pid_info = pid_knowledge_base[pid_id]
-    pid_data = pid_info.get("data", [])
-    description = pid_info.get("description", "")
-    
-    # Monta o contexto para o chatbot
-    context = f"""Você é um assistente especializado em P&ID (Piping and Instrumentation Diagram). 
-Você tem acesso aos seguintes dados sobre o P&ID '{pid_id}':
-
-DESCRIÇÃO DO PROCESSO:
-{description if description else "Descrição não gerada ainda."}
-
-EQUIPAMENTOS E INSTRUMENTOS ({len(pid_data)} itens):
-"""
-    
-    # Adiciona lista de equipamentos
-    for item in pid_data[:50]:  # Limita para não exceder token limit
-        context += f"- {item.get('tag', 'N/A')}: {item.get('descricao', 'N/A')}"
-        if item.get("from") != "N/A":
-            context += f" (de: {item.get('from')})"
-        if item.get("to") != "N/A":
-            context += f" (para: {item.get('to')})"
-        context += "\n"
-    
-    if len(pid_data) > 50:
-        context += f"... e mais {len(pid_data) - 50} itens\n"
-    
-    context += f"""
-PERGUNTA DO USUÁRIO:
-{question}
-
-Por favor, responda de forma clara, técnica e específica baseando-se APENAS nas informações fornecidas acima sobre este P&ID. 
-Se a informação solicitada não estiver disponível nos dados fornecidos, indique isso claramente."""
     
     try:
-        log_to_front(f"💬 Respondendo pergunta sobre {pid_id}: {question[:50]}...")
+        # Decide o modo
+        if mode is None:
+            # Modo híbrido - decide automaticamente
+            mode = CHATBOT_MODE
+            if mode == "hybrid":
+                use_vision = should_use_vision_mode(question)
+                actual_mode = "vision" if use_vision else "text"
+                log_to_front(f"🤖 Modo HÍBRIDO: detectou pergunta {'VISUAL' if use_vision else 'TEXTUAL'}")
+            else:
+                actual_mode = mode
+        else:
+            actual_mode = mode
         
-        global client
-        resp = client.chat.completions.create(
-            model=FALLBACK_MODEL,
-            messages=[{
-                "role": "user",
-                "content": context
-            }],
-            temperature=0.5,  # Menos criatividade para respostas mais precisas
-            timeout=OPENAI_REQUEST_TIMEOUT
-        )
-        
-        answer = resp.choices[0].message.content if resp and resp.choices else "Erro ao gerar resposta"
-        log_to_front("✅ Resposta gerada")
+        # Executa no modo escolhido
+        if actual_mode == "vision":
+            answer = await chat_with_vision(pid_id, question, pid_info)
+            mode_used = "vision"
+        else:
+            answer = await chat_with_text(pid_id, question, pid_info)
+            mode_used = "text"
         
         return JSONResponse(content={
             "pid_id": pid_id,
             "question": question,
-            "answer": answer
+            "answer": answer,
+            "mode_used": mode_used
         })
         
     except Exception as e:
