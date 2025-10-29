@@ -82,7 +82,9 @@ def cosine_similarity(a, b):
     norm_b = np.linalg.norm(b)
     
     # Handle edge cases: zero vectors or invalid norms
-    if norm_a == 0 or norm_b == 0 or not np.isfinite(norm_a) or not np.isfinite(norm_b):
+    # Use a small epsilon for robust zero detection with floating-point numbers
+    eps = np.finfo(float).eps
+    if norm_a < eps or norm_b < eps or not np.isfinite(norm_a) or not np.isfinite(norm_b):
         return 0.0
     
     similarity = np.dot(a, b) / (norm_a * norm_b)
@@ -109,10 +111,6 @@ def match_system_fullname(tag: str, descricao: str, tipo: str = "") -> dict:
         sims = [cosine_similarity(emb_q, emb_ref) for emb_ref in ref_embeddings]
         best_idx = int(np.argmax(sims))
         best_score = float(sims[best_idx])
-        
-        # Ensure best_score is JSON-compliant (not NaN or Infinity)
-        if not np.isfinite(best_score):
-            best_score = 0.0
 
         ref_row = df_ref.iloc[best_idx]
 

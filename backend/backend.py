@@ -188,7 +188,7 @@ def ensure_json_list(content: str) -> List[Any]:
 def sanitize_for_json(obj: Any) -> Any:
     """
     Recursively sanitize data structure to ensure all float values are JSON-compliant.
-    Replaces NaN and Infinity with safe defaults (None or 0.0).
+    Replaces NaN and Infinity with 0.0.
     """
     if isinstance(obj, dict):
         return {k: sanitize_for_json(v) for k, v in obj.items()}
