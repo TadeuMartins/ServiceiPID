@@ -201,7 +201,7 @@ if uploaded_file:
                 excel_data = f.read()
             try:
                 os.unlink(tmp_excel.name)
-            except PermissionError:
+            except OSError:
                 pass  # File will be cleaned up by OS eventually
             st.download_button(
                 "💾 Baixar Excel",
@@ -237,7 +237,7 @@ if uploaded_file:
                 doc.close()
                 try:
                     os.unlink(tmp_pdf.name)
-                except PermissionError:
+                except OSError:
                     pass  # File will be cleaned up by OS eventually
 
             # ======== Raw JSON (debug opcional) ========
@@ -355,7 +355,7 @@ if generate_button and prompt_text:
                 excel_data = f.read()
             try:
                 os.unlink(tmp_excel.name)
-            except PermissionError:
+            except OSError:
                 pass  # File will be cleaned up by OS eventually
             st.download_button(
                 "💾 Baixar Excel",
