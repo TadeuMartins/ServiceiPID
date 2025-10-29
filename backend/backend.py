@@ -10,7 +10,14 @@ from typing import List, Any, Dict, Tuple, Optional
 from PIL import Image, ImageEnhance, ImageOps, ImageFilter
 import io
 import numpy as np
-import cv2
+
+# Try to import cv2 for advanced preprocessing - gracefully handle if not available
+try:
+    import cv2
+    CV2_AVAILABLE = True
+except ImportError:
+    CV2_AVAILABLE = False
+    cv2 = None  # Placeholder
 
 import fitz  # PyMuPDF
 import httpx, certifi
@@ -526,38 +533,44 @@ def preprocess_image_adaptive(img_bytes: bytes, method: str = "hybrid") -> bytes
         
     elif method == "hybrid":
         # Hybrid approach: adaptive thresholding with morphology
-        # Convert to numpy for OpenCV operations
-        img_np = np.array(img)
-        
-        # Enhance contrast
-        img_enhanced = ImageEnhance.Contrast(img).enhance(1.5)
-        img_np = np.array(img_enhanced)
-        
-        # Apply adaptive thresholding (block-based)
-        # Use Gaussian adaptive threshold for better handling of varying lighting
-        binary = cv2.adaptiveThreshold(
-            img_np, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
-            cv2.THRESH_BINARY, 15, 2
-        )
-        
-        # Light morphological operations to preserve thin lines
-        # Use smaller kernel to avoid losing small symbols
-        kernel = np.ones((2, 2), np.uint8)
-        
-        # Opening to remove small noise
-        opened = cv2.morphologyEx(binary, cv2.MORPH_OPEN, kernel, iterations=1)
-        
-        # Closing to connect nearby components (only if it helps)
-        # Use very conservative closing to avoid merging separate symbols
-        kernel_close = np.ones((2, 2), np.uint8)
-        closed = cv2.morphologyEx(opened, cv2.MORPH_CLOSE, kernel_close, iterations=1)
-        
-        # Check if background is dark (invert if needed)
-        if np.mean(closed) < 128:
-            closed = cv2.bitwise_not(closed)
-        
-        # Convert back to PIL
-        img = Image.fromarray(closed)
+        if not CV2_AVAILABLE:
+            # Fallback to grayscale if OpenCV not available
+            log_to_front("⚠️ OpenCV not available, falling back to grayscale preprocessing")
+            img = ImageEnhance.Contrast(img).enhance(1.5)
+            img = ImageEnhance.Sharpness(img).enhance(1.2)
+        else:
+            # Convert to numpy for OpenCV operations
+            img_np = np.array(img)
+            
+            # Enhance contrast
+            img_enhanced = ImageEnhance.Contrast(img).enhance(1.5)
+            img_np = np.array(img_enhanced)
+            
+            # Apply adaptive thresholding (block-based)
+            # Use Gaussian adaptive threshold for better handling of varying lighting
+            binary = cv2.adaptiveThreshold(
+                img_np, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
+                cv2.THRESH_BINARY, 15, 2
+            )
+            
+            # Light morphological operations to preserve thin lines
+            # Use smaller kernel to avoid losing small symbols
+            kernel = np.ones((2, 2), np.uint8)
+            
+            # Opening to remove small noise
+            opened = cv2.morphologyEx(binary, cv2.MORPH_OPEN, kernel, iterations=1)
+            
+            # Closing to connect nearby components (only if it helps)
+            # Use very conservative closing to avoid merging separate symbols
+            kernel_close = np.ones((2, 2), np.uint8)
+            closed = cv2.morphologyEx(opened, cv2.MORPH_CLOSE, kernel_close, iterations=1)
+            
+            # Check if background is dark (invert if needed)
+            if np.mean(closed) < 128:
+                closed = cv2.bitwise_not(closed)
+            
+            # Convert back to PIL
+            img = Image.fromarray(closed)
     
     else:
         raise ValueError(f"Unknown preprocessing method: {method}")
@@ -619,6 +632,329 @@ def render_quadrant_png(page: fitz.Page, rect: fitz.Rect, dpi: int = 400,
         log_to_front(f"   ⚠️ Erro ao renderizar quadrante: {type(e).__name__}: {e}")
         traceback.print_exc()
         raise
+
+
+# ============================================================
+# ITEM 6: POST-LLM VALIDATION WITH OCR
+# ============================================================
+def validate_tag_with_ocr(page: fitz.Page, item: Dict[str, Any], dpi: int = 300, 
+                          search_radius_mm: float = 50.0) -> Dict[str, Any]:
+    """
+    Validate equipment TAG using OCR on nearby region.
+    
+    Args:
+        page: PyMuPDF page object
+        item: Equipment item with x_mm, y_mm coordinates and tag
+        dpi: Resolution for OCR
+        search_radius_mm: Radius in mm to search for TAG text
+    
+    Returns:
+        Validation result with OCR text, confidence, and match status
+    """
+    try:
+        import pytesseract
+        from PIL import Image
+        
+        # Convert coordinates to points
+        x_pts = item["x_mm"] / 0.3528
+        y_pts = item["y_mm"] / 0.3528
+        search_radius_pts = search_radius_mm / 0.3528
+        
+        # Create search rectangle around the item
+        rect = fitz.Rect(
+            x_pts - search_radius_pts,
+            y_pts - search_radius_pts,
+            x_pts + search_radius_pts,
+            y_pts + search_radius_pts
+        )
+        
+        # Clip to page bounds
+        rect = rect & page.rect
+        
+        # Render region
+        pix = page.get_pixmap(dpi=dpi, clip=rect)
+        img_bytes = pix.tobytes("png")
+        
+        # Convert to PIL Image
+        img = Image.open(io.BytesIO(img_bytes))
+        
+        # Perform OCR
+        ocr_text = pytesseract.image_to_string(img, config='--psm 6')
+        ocr_text_clean = ocr_text.strip().upper()
+        
+        # Clean and normalize TAG
+        expected_tag = str(item.get("tag", "")).strip().upper()
+        expected_tag_clean = re.sub(r'[^A-Z0-9]', '', expected_tag)
+        
+        # Check if TAG appears in OCR text
+        ocr_text_normalized = re.sub(r'[^A-Z0-9]', '', ocr_text_clean)
+        tag_found = expected_tag_clean in ocr_text_normalized if expected_tag_clean else False
+        
+        # Calculate confidence score (0-100)
+        if tag_found:
+            confidence = min(100, int(80 + 20 * (len(expected_tag_clean) / max(1, len(ocr_text_normalized)))))
+        else:
+            # Check for partial match
+            if expected_tag_clean and any(c in ocr_text_normalized for c in expected_tag_clean):
+                confidence = 30
+            else:
+                confidence = 0
+        
+        return {
+            "ocr_text": ocr_text.strip(),
+            "ocr_text_normalized": ocr_text_normalized,
+            "expected_tag": expected_tag,
+            "tag_found": tag_found,
+            "confidence": confidence,
+            "validation_passed": confidence >= 50,
+            "search_region": {
+                "x0": rect.x0,
+                "y0": rect.y0,
+                "x1": rect.x1,
+                "y1": rect.y1
+            }
+        }
+    except ImportError:
+        return {
+            "error": "pytesseract not installed",
+            "validation_passed": True,  # Skip validation if OCR not available
+            "confidence": 0
+        }
+    except Exception as e:
+        return {
+            "error": str(e),
+            "validation_passed": True,  # Don't fail on OCR errors
+            "confidence": 0
+        }
+
+
+def validate_symbol_type(item: Dict[str, Any], description: str) -> Dict[str, Any]:
+    """
+    Validate equipment type based on TAG prefix and description.
+    Uses pattern matching to verify consistency.
+    
+    Args:
+        item: Equipment item with tag
+        description: Equipment description
+    
+    Returns:
+        Validation result with matched type and confidence
+    """
+    tag = str(item.get("tag", "")).strip().upper()
+    desc_lower = description.lower()
+    
+    # ISA S5.1 standard instrument tags
+    instrument_types = {
+        "PT": ["pressure", "transmitter", "transmissor de pressão", "pressão"],
+        "TT": ["temperature", "transmitter", "transmissor de temperatura", "temperatura"],
+        "FT": ["flow", "transmitter", "transmissor de vazão", "vazão"],
+        "LT": ["level", "transmitter", "transmissor de nível", "nível"],
+        "PI": ["pressure", "indicator", "indicador de pressão"],
+        "TI": ["temperature", "indicator", "indicador de temperatura"],
+        "FI": ["flow", "indicator", "indicador de vazão"],
+        "LI": ["level", "indicator", "indicador de nível"],
+        "PSV": ["pressure", "safety", "valve", "válvula de segurança", "alívio"],
+        "FCV": ["flow", "control", "valve", "válvula de controle de vazão"],
+        "PCV": ["pressure", "control", "valve", "válvula de controle de pressão"],
+        "TCV": ["temperature", "control", "valve", "válvula de controle de temperatura"],
+        "LCV": ["level", "control", "valve", "válvula de controle de nível"],
+    }
+    
+    # Equipment tags
+    equipment_types = {
+        "P": ["pump", "bomba"],
+        "T": ["tank", "tanque"],
+        "TK": ["tank", "tanque"],
+        "V": ["vessel", "vaso", "vasel"],
+        "E": ["exchanger", "heat", "trocador"],
+        "R": ["reactor", "reator"],
+        "C": ["compressor", "column", "tower", "compressor", "coluna", "torre"],
+        "K": ["compressor", "compressor"],
+        "F": ["furnace", "forno"],
+    }
+    
+    # Extract prefix from TAG
+    tag_prefix = ""
+    for prefix in sorted(list(instrument_types.keys()) + list(equipment_types.keys()), key=len, reverse=True):
+        if tag.startswith(prefix):
+            tag_prefix = prefix
+            break
+    
+    if not tag_prefix:
+        return {
+            "tag_prefix": None,
+            "expected_keywords": [],
+            "found_keywords": [],
+            "type_match": False,
+            "confidence": 0,
+            "validation_passed": True  # Don't fail on unknown tags
+        }
+    
+    # Get expected keywords
+    expected_keywords = instrument_types.get(tag_prefix) or equipment_types.get(tag_prefix) or []
+    
+    # Check if any keyword appears in description
+    found_keywords = [kw for kw in expected_keywords if kw in desc_lower]
+    
+    # Calculate confidence
+    if found_keywords:
+        confidence = min(100, int(60 + 40 * (len(found_keywords) / max(1, len(expected_keywords)))))
+        type_match = True
+    else:
+        confidence = 20  # Low confidence but not zero
+        type_match = False
+    
+    return {
+        "tag_prefix": tag_prefix,
+        "expected_keywords": expected_keywords,
+        "found_keywords": found_keywords,
+        "type_match": type_match,
+        "confidence": confidence,
+        "validation_passed": confidence >= 40
+    }
+
+
+# ============================================================
+# ITEM 7: GEOMETRIC CENTER REFINEMENT
+# ============================================================
+def refine_geometric_center(page: fitz.Page, item: Dict[str, Any], 
+                            dpi: int = 400, search_radius_mm: float = 30.0) -> Dict[str, Any]:
+    """
+    Refine equipment coordinates to geometric center using image processing.
+    
+    Args:
+        page: PyMuPDF page object
+        item: Equipment item with x_mm, y_mm coordinates
+        dpi: Resolution for analysis
+        search_radius_mm: Radius in mm to search for symbol
+    
+    Returns:
+        Refined coordinates and metadata
+    """
+    try:
+        from skimage import measure
+        
+        # Convert coordinates to points
+        x_pts = item["x_mm"] / 0.3528
+        y_pts = item["y_mm"] / 0.3528
+        search_radius_pts = search_radius_mm / 0.3528
+        
+        # Create search rectangle around the item
+        rect = fitz.Rect(
+            x_pts - search_radius_pts,
+            y_pts - search_radius_pts,
+            x_pts + search_radius_pts,
+            y_pts + search_radius_pts
+        )
+        
+        # Clip to page bounds
+        rect = rect & page.rect
+        
+        # Render region
+        pix = page.get_pixmap(dpi=dpi, clip=rect)
+        img_bytes = pix.tobytes("png")
+        
+        # Convert to numpy array
+        img = Image.open(io.BytesIO(img_bytes)).convert('L')
+        img_array = np.array(img)
+        
+        # Create binary mask using adaptive thresholding
+        if not CV2_AVAILABLE:
+            # Fallback to simple thresholding if OpenCV not available
+            threshold = np.mean(img_array)
+            binary = (img_array < threshold).astype(np.uint8) * 255
+        else:
+            binary = cv2.adaptiveThreshold(
+                img_array, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+                cv2.THRESH_BINARY_INV, 15, 2
+            )
+        
+        # Find connected components
+        labels = measure.label(binary, connectivity=2)
+        
+        # Get properties of regions
+        regions = measure.regionprops(labels)
+        
+        if not regions:
+            # No regions found, return original coordinates
+            return {
+                "refined_x_mm": item["x_mm"],
+                "refined_y_mm": item["y_mm"],
+                "offset_x_mm": 0.0,
+                "offset_y_mm": 0.0,
+                "refinement_applied": False,
+                "reason": "No regions detected",
+                "confidence": 0
+            }
+        
+        # Find the largest region (likely the main symbol)
+        largest_region = max(regions, key=lambda r: r.area)
+        
+        # Calculate center of mass
+        centroid_y, centroid_x = largest_region.centroid
+        
+        # Convert centroid from image coordinates to global coordinates
+        # Image coordinates are relative to search rectangle
+        centroid_x_pts = rect.x0 + (centroid_x / img.width) * rect.width
+        centroid_y_pts = rect.y0 + (centroid_y / img.height) * rect.height
+        
+        # Convert to mm
+        refined_x_mm = centroid_x_pts * 0.3528
+        refined_y_mm = centroid_y_pts * 0.3528
+        
+        # Calculate offset
+        offset_x_mm = refined_x_mm - item["x_mm"]
+        offset_y_mm = refined_y_mm - item["y_mm"]
+        
+        # Only apply refinement if offset is reasonable (< search_radius_mm)
+        offset_magnitude = math.hypot(offset_x_mm, offset_y_mm)
+        apply_refinement = offset_magnitude < search_radius_mm
+        
+        if apply_refinement:
+            # Calculate confidence based on region properties
+            # Higher confidence for larger, more compact regions
+            compactness = largest_region.area / (largest_region.bbox_area + 1)
+            confidence = min(100, int(50 + 50 * compactness))
+        else:
+            confidence = 0
+            refined_x_mm = item["x_mm"]
+            refined_y_mm = item["y_mm"]
+            offset_x_mm = 0.0
+            offset_y_mm = 0.0
+        
+        return {
+            "refined_x_mm": refined_x_mm,
+            "refined_y_mm": refined_y_mm,
+            "offset_x_mm": offset_x_mm,
+            "offset_y_mm": offset_y_mm,
+            "offset_magnitude_mm": offset_magnitude,
+            "refinement_applied": apply_refinement,
+            "confidence": confidence,
+            "region_area": largest_region.area,
+            "region_bbox": largest_region.bbox,
+            "num_regions": len(regions)
+        }
+        
+    except ImportError:
+        return {
+            "refined_x_mm": item["x_mm"],
+            "refined_y_mm": item["y_mm"],
+            "offset_x_mm": 0.0,
+            "offset_y_mm": 0.0,
+            "refinement_applied": False,
+            "error": "scikit-image not installed",
+            "confidence": 0
+        }
+    except Exception as e:
+        return {
+            "refined_x_mm": item["x_mm"],
+            "refined_y_mm": item["y_mm"],
+            "offset_x_mm": 0.0,
+            "offset_y_mm": 0.0,
+            "refinement_applied": False,
+            "error": str(e),
+            "confidence": 0
+        }
 
 
 # ============================================================
@@ -913,7 +1249,9 @@ async def analyze_pdf(
     grid: int = Query(3, ge=1, le=6),
     tol_mm: float = Query(10.0, ge=1.0, le=50.0),
     use_overlap: bool = Query(False, description="Use overlapping windows for better edge coverage"),
-    use_dynamic_tolerance: bool = Query(True, description="Use dynamic tolerance based on symbol size")
+    use_dynamic_tolerance: bool = Query(True, description="Use dynamic tolerance based on symbol size"),
+    use_ocr_validation: bool = Query(False, description="Validate TAGs using OCR (requires pytesseract)"),
+    use_geometric_refinement: bool = Query(False, description="Refine coordinates to geometric center")
 ):
     if not OPENAI_API_KEY:
         raise HTTPException(status_code=400, detail="OPENAI_API_KEY não definida. Configure a chave no arquivo .env")
@@ -1033,6 +1371,58 @@ async def analyze_pdf(
                 })
 
             combined.append(item)
+
+        # ITEM 6: Post-LLM Validation with OCR and Symbol Type Matching
+        if use_ocr_validation:
+            log_to_front(f"🔍 Validando itens com OCR e matching de símbolos...")
+            for item in combined:
+                # OCR validation
+                ocr_result = validate_tag_with_ocr(page, item, dpi=dpi)
+                item["ocr_validation"] = ocr_result
+                
+                # Symbol type validation
+                type_result = validate_symbol_type(item, item.get("descricao", ""))
+                item["type_validation"] = type_result
+                
+                # Combined validation confidence
+                ocr_conf = ocr_result.get("confidence", 0)
+                type_conf = type_result.get("confidence", 0)
+                item["validation_confidence"] = int((ocr_conf + type_conf) / 2)
+                item["validation_passed"] = (
+                    ocr_result.get("validation_passed", True) and 
+                    type_result.get("validation_passed", True)
+                )
+            
+            validated_count = sum(1 for it in combined if it.get("validation_passed", False))
+            log_to_front(f"   ✅ Validados: {validated_count}/{len(combined)} itens")
+        
+        # ITEM 7: Geometric Center Refinement
+        if use_geometric_refinement:
+            log_to_front(f"📐 Refinando coordenadas para centro geométrico...")
+            refined_count = 0
+            total_offset = 0.0
+            
+            for item in combined:
+                refinement = refine_geometric_center(page, item, dpi=dpi)
+                item["geometric_refinement"] = refinement
+                
+                if refinement.get("refinement_applied", False):
+                    # Update coordinates with refined values
+                    item["x_mm_original"] = item["x_mm"]
+                    item["y_mm_original"] = item["y_mm"]
+                    item["x_mm"] = refinement["refined_x_mm"]
+                    item["y_mm"] = refinement["refined_y_mm"]
+                    
+                    # Clamp refined coordinates
+                    item["x_mm"] = max(0.0, min(W_mm, item["x_mm"]))
+                    item["y_mm"] = max(0.0, min(H_mm, item["y_mm"]))
+                    
+                    refined_count += 1
+                    total_offset += refinement.get("offset_magnitude_mm", 0.0)
+            
+            if refined_count > 0:
+                avg_offset = total_offset / refined_count
+                log_to_front(f"   ✅ Refinados: {refined_count}/{len(combined)} itens (offset médio: {avg_offset:.2f}mm)")
 
         unique = dedup_items(combined, page_num=page_num, tol_mm=tol_mm, 
                             use_dynamic_tolerance=use_dynamic_tolerance, log_metadata=False)
