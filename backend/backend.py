@@ -674,8 +674,8 @@ async def analyze_pdf(
                 x_in += ox
                 y_in += oy
 
-            # flip Y para COMOS
-            y_cad = H_mm - y_in
+            # No Y flip - top-left origin (0,0) for both y_mm and y_mm_cad
+            y_cad = y_in
 
             # clamp
             x_in = max(0.0, min(W_mm, x_in))
@@ -1041,8 +1041,8 @@ async def generate_pid(
             x_in = max(0.0, min(W_mm, x_in))
             y_in = max(0.0, min(H_mm, y_in))
             
-            # Flip Y para COMOS
-            y_cad = H_mm - y_in
+            # No Y flip - top-left origin (0,0) for both y_mm and y_mm_cad
+            y_cad = y_in
             
             item = {
                 "tag": it.get("tag", "N/A"),
