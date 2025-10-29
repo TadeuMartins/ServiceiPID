@@ -81,24 +81,24 @@ def test_coordinate_processing():
     
     # Test case 1: Top-left corner
     y_in = 0.0  # Top of page
-    y_cad = H_mm - y_in  # COMOS flip
+    y_cad = y_in  # No flip - top-left origin (0,0) for both
     assert y_in == 0.0, "Top of page should be Y=0"
-    assert y_cad == 841.0, "COMOS coordinate should be flipped"
-    print(f"✓ Top-left corner: y_mm={y_in} (top), y_mm_cad={y_cad} (COMOS)")
+    assert y_cad == 0.0, "y_mm_cad should also be 0 at top (no flip)"
+    print(f"✓ Top-left corner: y_mm={y_in} (top), y_mm_cad={y_cad} (top)")
     
     # Test case 2: Bottom-left corner
     y_in = 841.0  # Bottom of page
-    y_cad = H_mm - y_in  # COMOS flip
+    y_cad = y_in  # No flip - top-left origin (0,0) for both
     assert y_in == 841.0, "Bottom of page should be Y=841"
-    assert y_cad == 0.0, "COMOS coordinate should be flipped"
-    print(f"✓ Bottom-left corner: y_mm={y_in} (bottom), y_mm_cad={y_cad} (COMOS)")
+    assert y_cad == 841.0, "y_mm_cad should also be 841 at bottom (no flip)"
+    print(f"✓ Bottom-left corner: y_mm={y_in} (bottom), y_mm_cad={y_cad} (bottom)")
     
     # Test case 3: Middle of page
     y_in = 420.5  # Middle of page
-    y_cad = H_mm - y_in  # COMOS flip
+    y_cad = y_in  # No flip - top-left origin (0,0) for both
     assert y_in == 420.5, "Middle of page should be Y=420.5"
-    assert y_cad == 420.5, "COMOS coordinate should be flipped (also middle)"
-    print(f"✓ Middle of page: y_mm={y_in} (middle), y_mm_cad={y_cad} (COMOS)")
+    assert y_cad == 420.5, "y_mm_cad should also be 420.5 at middle (no flip)"
+    print(f"✓ Middle of page: y_mm={y_in} (middle), y_mm_cad={y_cad} (middle)")
     
     print("\nCoordinate Processing: All tests passed")
     return True
@@ -120,7 +120,7 @@ if __name__ == "__main__":
         print("- Top-left corner is origin (0, 0)")
         print("- Y increases from top to bottom (downward)")
         print("- Y=0 at top of page, Y=841mm at bottom (A0 sheet)")
-        print("- COMOS compatibility maintained via y_mm_cad flip")
+        print("- y_mm_cad uses same coordinate system (no flip)")
         print("- Both PDF analysis and generation prompts are consistent")
     else:
         print("❌ SOME TESTS FAILED")
