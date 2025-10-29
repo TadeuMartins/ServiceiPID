@@ -92,8 +92,6 @@ Após análise ou geração de um P&ID:
    ```
    
    **Nota:** O arquivo `.env` será automaticamente carregado pela aplicação e não deve ser commitado no repositório (já está no `.gitignore`).
-   
-   > 📖 **Precisa de ajuda?** Veja o guia completo: [COMO_CONFIGURAR_ENV.md](COMO_CONFIGURAR_ENV.md)
 
 ### Iniciando o backend
 2. Instale dependências e rode o backend:
@@ -281,8 +279,6 @@ Se você receber erros relacionados à API key da OpenAI:
 3. **Reinicie o servidor** após criar/modificar o arquivo `.env`
 
 **Lembre-se:** O arquivo `.env` NÃO existe no repositório por segurança. Você SEMPRE precisa criá-lo manualmente usando o template `.env.example`.
-
-> 📖 **Precisa de ajuda detalhada?** Consulte o guia completo: [COMO_CONFIGURAR_ENV.md](COMO_CONFIGURAR_ENV.md)
 
 O arquivo `.env` é carregado automaticamente pelo backend usando `python-dotenv`.
 
