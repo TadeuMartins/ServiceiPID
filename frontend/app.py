@@ -235,7 +235,10 @@ if uploaded_file:
                     ax.axis("off")
                     st.pyplot(fig)
                 doc.close()
-                os.unlink(tmp_pdf.name)
+                try:
+                    os.unlink(tmp_pdf.name)
+                except PermissionError:
+                    pass  # File will be cleaned up by OS eventually
 
             # ======== Raw JSON (debug opcional) ========
             with st.expander("📂 Ver JSON bruto do backend"):
