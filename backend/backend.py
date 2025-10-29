@@ -359,6 +359,9 @@ def render_quadrant_png(page: fitz.Page, rect: fitz.Rect, dpi: int = 400) -> byt
 # PROMPT BUILDER
 # ============================================================
 def build_prompt(width_mm: float, height_mm: float, scope: str = "global", origin=(0, 0), quad_label: str = "") -> str:
+    # Defensive check: ensure landscape orientation
+    # Note: For analyze_pdf, pages are already rotated to landscape
+    # This is mainly for other callers like generate endpoint
     if height_mm > width_mm:
         width_mm, height_mm = height_mm, width_mm
 
@@ -652,12 +655,18 @@ async def analyze_pdf(
         page_num = page_idx + 1
         log_to_front(f"\n===== Página {page_num} =====")
 
+        # Ensure page is always in landscape orientation
+        # Check current orientation and rotate if needed
         W_pts, H_pts = page.rect.width, page.rect.height
+        if H_pts > W_pts:
+            # Page is in portrait, rotate 90 degrees to landscape
+            log_to_front(f"⤵️ Página em retrato detectada ({points_to_mm(W_pts):.1f} x {points_to_mm(H_pts):.1f} mm), rotacionando para paisagem...")
+            page.set_rotation(90)
+            # After rotation, dimensions are automatically swapped
+            W_pts, H_pts = page.rect.width, page.rect.height
+        
         W_mm, H_mm = points_to_mm(W_pts), points_to_mm(H_pts)
-        if H_mm > W_mm:
-            W_mm, H_mm = H_mm, W_mm
-
-        log_to_front(f"Dimensões normalizadas (mm): X={W_mm}, Y={H_mm}")
+        log_to_front(f"Dimensões (mm): X={W_mm}, Y={H_mm} (paisagem)")
 
         global_list: List[Dict[str, Any]] = []
         quad_items: List[Dict[str, Any]] = []
