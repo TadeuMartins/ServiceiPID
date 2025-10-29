@@ -29,8 +29,8 @@ load_dotenv()
 # 🔑 CONFIG OPENAI
 # =================================================
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-PRIMARY_MODEL = os.getenv("PRIMARY_MODEL", "gpt-4o")  # gpt-4o supports vision
-FALLBACK_MODEL = os.getenv("FALLBACK_MODEL", "gpt-4o-mini")  # Cheaper fallback that also supports vision
+PRIMARY_MODEL = os.getenv("PRIMARY_MODEL", "gpt-5")
+FALLBACK_MODEL = os.getenv("FALLBACK_MODEL", "gpt-4o")
 OPENAI_REQUEST_TIMEOUT = int(os.getenv("OPENAI_REQUEST_TIMEOUT", "600"))
 
 
@@ -310,11 +310,13 @@ def render_quadrant_png(page: fitz.Page, rect: fitz.Rect, dpi: int = 400) -> byt
         pix = page.get_pixmap(dpi=dpi, clip=rect)
         raw_bytes = pix.tobytes("png")
         processed_bytes = preprocess_image(raw_bytes)
+        if not processed_bytes or len(processed_bytes) == 0:
+            raise ValueError("Processed image is empty")
         return processed_bytes
     except Exception as e:
         log_to_front(f"   ⚠️ Erro ao renderizar quadrante: {type(e).__name__}: {e}")
         traceback.print_exc()
-        raise  # Re-raise the exception instead of returning empty bytes
+        raise
 
 
 # ============================================================
@@ -461,47 +463,44 @@ RETORNE SOMENTE O ARRAY JSON. Não inclua texto adicional, markdown ou explicaç
 def llm_call(image_b64: str, prompt: str, prefer_model: str = PRIMARY_MODEL):
     global client
     
-    # Try the primary model first
-    try:
-        resp = client.chat.completions.create(
-            model=prefer_model,
-            messages=[{
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": prompt},
-                    {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{image_b64}"}}
-                ]
-            }],
-            temperature=0,
-            timeout=OPENAI_REQUEST_TIMEOUT
-        )
-        return prefer_model, resp
-    except Exception as e:
-        # Check if it's an SSL error and retry without SSL verification
-        if "SSL" in str(e) or "certificate" in str(e).lower():
-            log_to_front(f"⚠️ {prefer_model} falhou com erro SSL: {e}")
-            log_to_front("🔄 Tentando novamente sem verificação SSL...")
-            client = make_client(verify_ssl=False)
-            try:
-                resp = client.chat.completions.create(
-                    model=prefer_model,
-                    messages=[{
-                        "role": "user",
-                        "content": [
-                            {"type": "text", "text": prompt},
-                            {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{image_b64}"}}
-                        ]
-                    }],
-                    temperature=0,
-                    timeout=OPENAI_REQUEST_TIMEOUT
-                )
-                return prefer_model, resp
-            except Exception as e2:
-                log_to_front(f"⚠️ {prefer_model} falhou novamente: {e2}")
-        else:
-            log_to_front(f"⚠️ {prefer_model} falhou: {e}")
+    if prefer_model == "gpt-5":
+        try:
+            resp = client.chat.completions.create(
+                model="gpt-5",
+                messages=[{
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": prompt},
+                        {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{image_b64}"}}
+                    ]
+                }],
+                timeout=OPENAI_REQUEST_TIMEOUT
+            )
+            return "gpt-5", resp
+        except Exception as e:
+            # Check if it's an SSL error and retry without SSL verification
+            if "SSL" in str(e) or "certificate" in str(e).lower():
+                log_to_front(f"⚠️ gpt-5 falhou com erro SSL: {e}")
+                log_to_front("🔄 Tentando novamente sem verificação SSL...")
+                client = make_client(verify_ssl=False)
+                try:
+                    resp = client.chat.completions.create(
+                        model="gpt-5",
+                        messages=[{
+                            "role": "user",
+                            "content": [
+                                {"type": "text", "text": prompt},
+                                {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{image_b64}"}}
+                            ]
+                        }],
+                        timeout=OPENAI_REQUEST_TIMEOUT
+                    )
+                    return "gpt-5", resp
+                except Exception as e2:
+                    log_to_front(f"⚠️ gpt-5 falhou novamente: {e2}")
+            else:
+                log_to_front(f"⚠️ gpt-5 falhou: {e}")
     
-    # Try fallback model
     try:
         resp = client.chat.completions.create(
             model=FALLBACK_MODEL,
@@ -563,7 +562,6 @@ async def process_quadrant(gx, gy, rect, page, W_mm, H_mm, dpi):
             raise ValueError(f"Failed to render quadrant {label}: empty image data")
         
         quad_b64 = base64.b64encode(quad_png).decode("utf-8")
-        
         # Passa as dimensões CORRETAS do quadrante (não da página completa)
         prompt_q = build_prompt(rect_w_mm, rect_h_mm, "quadrant", (ox, oy), label)
         model_used, resp_q = await asyncio.to_thread(llm_call, quad_b64, prompt_q)
