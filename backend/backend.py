@@ -671,7 +671,7 @@ async def analyze_pdf(
             
             # Verify rotation by checking if text is readable
             log_to_front(f"   Verificando orientação do texto...")
-            text = page.get_text()
+            text = page.get_text() or ""
             
             # If text extraction worked and we have readable text, keep this rotation
             # If not, try the opposite direction
@@ -682,8 +682,8 @@ async def analyze_pdf(
                 # No text found or text is garbled, try opposite rotation
                 log_to_front(f"   ⚠️ Texto não legível com -90°, tentando +90°...")
                 page.set_rotation(90)
-                text_alt = page.get_text()
-                if text_alt and len(text_alt.strip()) > len(text.strip()):
+                text_alt = page.get_text() or ""
+                if len(text_alt.strip()) > len(text.strip()):
                     log_to_front(f"   ✓ Melhor resultado com +90° (horário)")
                 else:
                     # Keep -90 as default
