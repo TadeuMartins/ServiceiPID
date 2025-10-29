@@ -30,6 +30,8 @@ if "generation_results" not in st.session_state:
     st.session_state.generation_results = None
 if "last_prompt" not in st.session_state:
     st.session_state.last_prompt = None
+if "chatbot_mode" not in st.session_state:
+    st.session_state.chatbot_mode = "hybrid"
 
 # ======== Layout inicial ========
 st.set_page_config(page_title="P&ID Digitalizer DS Brazil - Siemens", layout="wide")
@@ -442,6 +444,11 @@ if st.session_state.pid_id:
                         st.write(entry["question"])
                     with st.chat_message("assistant"):
                         st.write(entry["answer"])
+                        # Mostra modo usado (se disponível)
+                        mode_used = entry.get("mode_used", "unknown")
+                        mode_emoji = "🖼️" if mode_used == "vision" else "📝"
+                        mode_label = "Vision" if mode_used == "vision" else "Text"
+                        st.caption(f"{mode_emoji} Modo: {mode_label}")
             
             # Input para nova pergunta
             st.markdown("#### ❓ Faça uma pergunta")
@@ -451,13 +458,28 @@ if st.session_state.pid_id:
             with col1:
                 user_question = st.text_input(
                     "Pergunta:",
-                    placeholder="Ex: Quais são os principais equipamentos? Como funciona o controle de temperatura?",
+                    placeholder="Ex: Quais são os principais equipamentos? Onde está localizado o tanque T-101?",
                     key="chat_input",
                     label_visibility="collapsed"
                 )
             
             with col2:
                 ask_button = st.button("📤 Enviar", use_container_width=True)
+            
+            # Seletor de modo (opcional - usa hybrid por padrão)
+            with st.expander("⚙️ Configurações Avançadas do Chatbot", expanded=False):
+                chatbot_mode = st.radio(
+                    "Modo de resposta:",
+                    options=["hybrid", "text", "vision"],
+                    index=0,
+                    horizontal=True,
+                    help="""
+                    - **hybrid**: Decide automaticamente (recomendado) - usa vision para perguntas visuais, text para outras
+                    - **text**: Sempre usa descrição ultra-completa + lista de equipamentos (mais rápido, mais barato)
+                    - **vision**: Sempre envia imagem do P&ID (mais preciso para layout, mais caro)
+                    """
+                )
+                st.info(f"🤖 Modo atual: **{chatbot_mode}**")
             
             # Exemplos de perguntas
             st.markdown("**💡 Exemplos de perguntas:**")
@@ -478,27 +500,51 @@ if st.session_state.pid_id:
                     user_question = "Explique o fluxo do processo neste P&ID."
                     ask_button = True
             
+            # Novo exemplo - pergunta visual
+            example_col4, example_col5, example_col6 = st.columns(3)
+            
+            with example_col4:
+                if st.button("📍 Localização de equipamento", use_container_width=True):
+                    user_question = "Onde estão localizados os principais equipamentos no diagrama?"
+                    ask_button = True
+            
+            with example_col5:
+                if st.button("🔗 Conexões entre equipamentos", use_container_width=True):
+                    user_question = "Quais equipamentos estão conectados entre si?"
+                    ask_button = True
+            
+            with example_col6:
+                if st.button("🛡️ Elementos de segurança", use_container_width=True):
+                    user_question = "Quais são os elementos de segurança (PSVs, alarmes)?"
+                    ask_button = True
+            
             # Processa pergunta
             if ask_button and user_question:
                 with st.spinner("🤔 Processando sua pergunta..."):
                     try:
+                        # Pega o modo selecionado pelo usuário (se não existe chatbot_mode no escopo, usa hybrid)
+                        selected_mode = chatbot_mode if 'chatbot_mode' in locals() else "hybrid"
+                        
                         response = requests.post(
                             CHAT_URL,
                             params={
                                 "pid_id": st.session_state.pid_id,
-                                "question": user_question
+                                "question": user_question,
+                                "mode": selected_mode
                             },
-                            timeout=60
+                            timeout=120  # Aumentado para 120s para permitir processamento de imagens
                         )
                         
                         if response.status_code == 200:
                             chat_data = response.json()
                             answer = chat_data.get("answer", "Desculpe, não consegui gerar uma resposta.")
+                            mode_used = chat_data.get("mode_used", "unknown")
                             
-                            # Adiciona ao histórico
+                            # Adiciona ao histórico com informação do modo
                             st.session_state.chat_history.append({
                                 "question": user_question,
-                                "answer": answer
+                                "answer": answer,
+                                "mode_used": mode_used
                             })
                             
                             # Recarrega a página para mostrar a nova mensagem
