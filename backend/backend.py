@@ -6,9 +6,11 @@ import base64
 import traceback
 import time
 import asyncio
-from typing import List, Any, Dict, Tuple
-from PIL import Image, ImageEnhance, ImageOps
+from typing import List, Any, Dict, Tuple, Optional
+from PIL import Image, ImageEnhance, ImageOps, ImageFilter
 import io
+import numpy as np
+import cv2
 
 import fitz  # PyMuPDF
 import httpx, certifi
@@ -215,13 +217,98 @@ def assign_no_tag_identifiers(items: List[Dict[str, Any]]) -> List[Dict[str, Any
     return items
 
 
+def estimate_symbol_size(tag: str, descricao: str) -> float:
+    """
+    Estimate typical symbol size in mm based on equipment type.
+    Used for dynamic deduplication tolerance.
+    
+    Returns:
+        Estimated symbol size in mm (for tolerance calculation)
+    """
+    tag_upper = tag.upper()
+    desc_lower = descricao.lower()
+    
+    # Large equipment - bigger symbols, larger tolerance
+    large_equipment_keywords = [
+        "tank", "tanque", "vessel", "vaso", "tower", "torre", "column", "coluna",
+        "reactor", "reator", "furnace", "forno", "boiler", "caldeira", "heat exchanger",
+        "trocador", "exchanger", "compressor", "compressor"
+    ]
+    
+    # Medium equipment
+    medium_equipment_keywords = [
+        "pump", "bomba", "filter", "filtro", "separator", "separador",
+        "drum", "tambor", "accumulator", "acumulador"
+    ]
+    
+    # Small instruments and valves
+    small_instrument_prefixes = ["PT", "TT", "FT", "LT", "PI", "TI", "FI", "LI", 
+                                  "PSV", "PCV", "FCV", "TCV", "LCV", "VALVE", "VÁLVULA"]
+    
+    # Check for large equipment
+    for keyword in large_equipment_keywords:
+        if keyword in desc_lower:
+            return 50.0  # Large symbols, use larger tolerance
+    
+    # Check for small instruments
+    for prefix in small_instrument_prefixes:
+        if tag_upper.startswith(prefix) or prefix.lower() in desc_lower:
+            return 10.0  # Small symbols, use smaller tolerance
+    
+    # Check for medium equipment
+    for keyword in medium_equipment_keywords:
+        if keyword in desc_lower:
+            return 25.0
+    
+    # Default medium size
+    return 20.0
+
+
+def calculate_dynamic_tolerance(item: Dict[str, Any], base_tol_mm: float = 10.0) -> float:
+    """
+    Calculate dynamic tolerance for deduplication based on symbol characteristics.
+    
+    Args:
+        item: Equipment/instrument item with tag and description
+        base_tol_mm: Base tolerance in mm
+    
+    Returns:
+        Adjusted tolerance in mm
+    """
+    tag = item.get("tag", "N/A")
+    descricao = item.get("descricao", "")
+    
+    # Estimate symbol size
+    estimated_size = estimate_symbol_size(tag, descricao)
+    
+    # Scale tolerance based on estimated size
+    # Larger symbols get proportionally larger tolerance
+    size_factor = estimated_size / 20.0  # Normalize to medium size
+    
+    # Apply factor with reasonable bounds
+    dynamic_tol = base_tol_mm * size_factor
+    
+    # Clamp to reasonable range (5mm to 100mm)
+    dynamic_tol = max(5.0, min(100.0, dynamic_tol))
+    
+    return dynamic_tol
+
+
 def dist_mm(a: Tuple[float, float], b: Tuple[float, float]) -> float:
     return math.hypot(a[0] - b[0], a[1] - b[1])
 
 
-def dedup_items(items: List[Dict[str, Any]], page_num: int, tol_mm: float = 10.0) -> List[Dict[str, Any]]:
+def dedup_items(items: List[Dict[str, Any]], page_num: int, tol_mm: float = 10.0, 
+                use_dynamic_tolerance: bool = True, log_metadata: bool = False) -> List[Dict[str, Any]]:
     """
     Remove duplicatas com base em TAG e proximidade espacial.
+    
+    Args:
+        items: List of items to deduplicate
+        page_num: Page number
+        tol_mm: Base tolerance in mm
+        use_dynamic_tolerance: Use dynamic tolerance based on symbol size
+        log_metadata: Log deduplication metadata for auditing
     
     Estratégia:
     1. Normaliza todos os campos
@@ -249,13 +336,21 @@ def dedup_items(items: List[Dict[str, Any]], page_num: int, tol_mm: float = 10.0
     
     final: List[Dict[str, Any]] = []
     seen_tags = {}  # Maps (tag, page) -> list of positions
+    dedup_metadata = []  # Track deduplication decisions
     
     for it in items:
         tag = it.get("tag", "").strip().upper()
         pos = (it["x_mm"], it["y_mm"])
         page = it["pagina"]
         
+        # Calculate dynamic tolerance for this item
+        if use_dynamic_tolerance:
+            item_tolerance = calculate_dynamic_tolerance(it, tol_mm)
+        else:
+            item_tolerance = tol_mm
+        
         is_duplicate = False
+        duplicate_reason = None
         
         # Para itens com TAG válida (não N/A)
         if tag and tag != "N/A":
@@ -265,8 +360,10 @@ def dedup_items(items: List[Dict[str, Any]], page_num: int, tol_mm: float = 10.0
             if tag_key in seen_tags:
                 # Verifica se está próximo de alguma posição existente com MESMO TAG
                 for existing_pos in seen_tags[tag_key]:
-                    if dist_mm(pos, existing_pos) <= tol_mm:
+                    distance = dist_mm(pos, existing_pos)
+                    if distance <= item_tolerance:
                         is_duplicate = True
+                        duplicate_reason = f"Same tag '{tag}' within {distance:.1f}mm (tol={item_tolerance:.1f}mm)"
                         break
                 
                 # Se não está próximo de nenhuma posição existente com mesmo TAG,
@@ -283,13 +380,29 @@ def dedup_items(items: List[Dict[str, Any]], page_num: int, tol_mm: float = 10.0
             for existing in final:
                 if existing["pagina"] == page:
                     existing_pos = (existing["x_mm"], existing["y_mm"])
-                    if dist_mm(pos, existing_pos) <= tol_mm:
+                    distance = dist_mm(pos, existing_pos)
+                    if distance <= item_tolerance:
                         # Item sem TAG muito próximo de outro item - provavelmente duplicata
                         is_duplicate = True
+                        duplicate_reason = f"No tag, within {distance:.1f}mm of {existing.get('tag', 'N/A')} (tol={item_tolerance:.1f}mm)"
                         break
+        
+        # Log metadata if requested
+        if log_metadata:
+            dedup_metadata.append({
+                "tag": tag,
+                "position": pos,
+                "tolerance_used": item_tolerance,
+                "is_duplicate": is_duplicate,
+                "reason": duplicate_reason,
+                "kept": not is_duplicate
+            })
         
         # Se não é duplicata, adiciona à lista final
         if not is_duplicate:
+            # Add deduplication metadata to item
+            if log_metadata:
+                it["_dedup_tolerance"] = item_tolerance
             final.append(it)
     
     return final
@@ -298,36 +411,160 @@ def dedup_items(items: List[Dict[str, Any]], page_num: int, tol_mm: float = 10.0
 # ============================================================
 # SUBDIVISÃO EM QUADRANTES
 # ============================================================
-def page_quadrants(page: fitz.Page, grid_x: int = 3, grid_y: int = 3):
-    W, H = page.rect.width, page.rect.height
+def page_quadrants_with_overlap(page: fitz.Page, grid_x: int = 3, grid_y: int = 3, 
+                                 overlap_percent: float = 0.0) -> List[Tuple[int, int, fitz.Rect, str]]:
+    """
+    Generate quadrants with optional overlap to minimize edge artifacts.
+    
+    Args:
+        page: PyMuPDF page object
+        grid_x: Number of columns
+        grid_y: Number of rows
+        overlap_percent: Percentage of overlap (0.0 to 0.5, where 0.5 = 50% offset)
+    
+    Returns:
+        List of (gx, gy, rect, label) tuples
+    """
+    # Use page.rect directly (respects rotation metadata)
+    rect = page.rect
+    W, H = rect.width, rect.height
+    
+    # Handle landscape/portrait orientation
     if H > W:
         W, H = H, W
+    
     quads = []
+    
+    # Generate base grid
     for gy in range(grid_y):
         for gx in range(grid_x):
             x0 = (W / grid_x) * gx
             y0 = (H / grid_y) * gy
             x1 = x0 + (W / grid_x)
             y1 = y0 + (H / grid_y)
-            rect = fitz.Rect(x0, y0, x1, y1)
-            rect = fitz.Rect(
-                max(page.rect.x0, rect.x0),
-                max(page.rect.y0, rect.y0),
-                min(page.rect.x1, rect.x1),
-                min(page.rect.y1, rect.y1),
+            
+            quad_rect = fitz.Rect(x0, y0, x1, y1)
+            quad_rect = fitz.Rect(
+                max(rect.x0, quad_rect.x0),
+                max(rect.y0, quad_rect.y0),
+                min(rect.x1, quad_rect.x1),
+                min(rect.y1, quad_rect.y1),
             )
-            if rect.width > 0 and rect.height > 0:
-                quads.append((gx, gy, rect))
+            
+            if quad_rect.width > 0 and quad_rect.height > 0:
+                label = f"{gy+1}-{gx+1}"
+                quads.append((gx, gy, quad_rect, label))
+    
+    # Generate overlapped quadrants with offset (if enabled)
+    if overlap_percent > 0:
+        offset_x = (W / grid_x) * overlap_percent
+        offset_y = (H / grid_y) * overlap_percent
+        
+        for gy in range(grid_y - 1):  # Don't create offset beyond last row
+            for gx in range(grid_x - 1):  # Don't create offset beyond last column
+                x0 = (W / grid_x) * gx + offset_x
+                y0 = (H / grid_y) * gy + offset_y
+                x1 = x0 + (W / grid_x)
+                y1 = y0 + (H / grid_y)
+                
+                quad_rect = fitz.Rect(x0, y0, x1, y1)
+                quad_rect = fitz.Rect(
+                    max(rect.x0, quad_rect.x0),
+                    max(rect.y0, quad_rect.y0),
+                    min(rect.x1, quad_rect.x1),
+                    min(rect.y1, quad_rect.y1),
+                )
+                
+                if quad_rect.width > 0 and quad_rect.height > 0:
+                    label = f"{gy+1}-{gx+1}-overlap"
+                    quads.append((gx, gy, quad_rect, label))
+    
     return quads
 
 
-def preprocess_image(img_bytes: bytes) -> bytes:
+def page_quadrants(page: fitz.Page, grid_x: int = 3, grid_y: int = 3):
+    """Legacy quadrant generation - kept for backward compatibility"""
+    quads_with_labels = page_quadrants_with_overlap(page, grid_x, grid_y, overlap_percent=0.0)
+    # Return in old format (without label)
+    return [(gx, gy, rect) for gx, gy, rect, label in quads_with_labels]
+    return quads
+
+
+def preprocess_image_adaptive(img_bytes: bytes, method: str = "hybrid") -> bytes:
+    """
+    Adaptive image preprocessing with multiple methods.
+    
+    Args:
+        img_bytes: Raw image bytes
+        method: Preprocessing method - "hybrid" (grayscale + enhanced + adaptive), 
+                "binary" (old fixed threshold), "grayscale" (contrast enhanced only)
+    
+    Returns:
+        Preprocessed image bytes
+    """
     img = Image.open(io.BytesIO(img_bytes)).convert("L")
-    img = ImageEnhance.Contrast(img).enhance(2.0)
-    img = img.point(lambda p: 255 if p > 180 else 0)
-    if img.getpixel((0, 0)) < 128:
-        img = ImageOps.invert(img)
+    
+    # Normalize scale before upscaling for consistency
+    # Target standard DPI equivalent
+    target_width = max(img.width, 2000)
+    if img.width < target_width:
+        scale_factor = target_width / img.width
+        new_size = (int(img.width * scale_factor), int(img.height * scale_factor))
+        img = img.resize(new_size, Image.LANCZOS)
+    
+    if method == "binary":
+        # Old fixed threshold method (for backward compatibility)
+        img = ImageEnhance.Contrast(img).enhance(2.0)
+        img = img.point(lambda p: 255 if p > 180 else 0)
+        if img.getpixel((0, 0)) < 128:
+            img = ImageOps.invert(img)
+            
+    elif method == "grayscale":
+        # Enhanced grayscale only
+        img = ImageEnhance.Contrast(img).enhance(1.5)
+        img = ImageEnhance.Sharpness(img).enhance(1.2)
+        
+    elif method == "hybrid":
+        # Hybrid approach: adaptive thresholding with morphology
+        # Convert to numpy for OpenCV operations
+        img_np = np.array(img)
+        
+        # Enhance contrast
+        img_enhanced = ImageEnhance.Contrast(img).enhance(1.5)
+        img_np = np.array(img_enhanced)
+        
+        # Apply adaptive thresholding (block-based)
+        # Use Gaussian adaptive threshold for better handling of varying lighting
+        binary = cv2.adaptiveThreshold(
+            img_np, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
+            cv2.THRESH_BINARY, 15, 2
+        )
+        
+        # Light morphological operations to preserve thin lines
+        # Use smaller kernel to avoid losing small symbols
+        kernel = np.ones((2, 2), np.uint8)
+        
+        # Opening to remove small noise
+        opened = cv2.morphologyEx(binary, cv2.MORPH_OPEN, kernel, iterations=1)
+        
+        # Closing to connect nearby components (only if it helps)
+        # Use very conservative closing to avoid merging separate symbols
+        kernel_close = np.ones((2, 2), np.uint8)
+        closed = cv2.morphologyEx(opened, cv2.MORPH_CLOSE, kernel_close, iterations=1)
+        
+        # Check if background is dark (invert if needed)
+        if np.mean(closed) < 128:
+            closed = cv2.bitwise_not(closed)
+        
+        # Convert back to PIL
+        img = Image.fromarray(closed)
+    
+    else:
+        raise ValueError(f"Unknown preprocessing method: {method}")
+    
+    # Final upscale to 2x for better detail
     img = img.resize((img.width * 2, img.height * 2), Image.LANCZOS)
+    
     out = io.BytesIO()
     img.save(out, format="PNG", optimize=False)
     result = out.getvalue()
@@ -341,9 +578,38 @@ def preprocess_image(img_bytes: bytes) -> bytes:
     return result
 
 
-def render_quadrant_png(page: fitz.Page, rect: fitz.Rect, dpi: int = 400) -> bytes:
+def preprocess_image(img_bytes: bytes) -> bytes:
+    """Legacy preprocessing function - uses hybrid method by default"""
+    return preprocess_image_adaptive(img_bytes, method="hybrid")
+
+
+def render_quadrant_png(page: fitz.Page, rect: fitz.Rect, dpi: int = 400, 
+                        handle_rotation: bool = True) -> bytes:
+    """
+    Render a quadrant of a PDF page to PNG with preprocessing.
+    
+    Args:
+        page: PyMuPDF page object
+        rect: Rectangle to render
+        dpi: Resolution
+        handle_rotation: Apply rotation correction based on page.rotation metadata
+    
+    Returns:
+        Preprocessed PNG bytes
+    """
     try:
-        pix = page.get_pixmap(dpi=dpi, clip=rect)
+        # Get page rotation metadata
+        rotation = page.rotation if handle_rotation else 0
+        
+        # Render with automatic rotation handling by PyMuPDF
+        # PyMuPDF's get_pixmap handles rotation automatically if we use matrix
+        if rotation != 0:
+            # Create rotation matrix
+            mat = fitz.Matrix(1, 1).prerotate(rotation)
+            pix = page.get_pixmap(dpi=dpi, clip=rect, matrix=mat)
+        else:
+            pix = page.get_pixmap(dpi=dpi, clip=rect)
+        
         raw_bytes = pix.tobytes("png")
         processed_bytes = preprocess_image(raw_bytes)
         if not processed_bytes or len(processed_bytes) == 0:
@@ -444,25 +710,41 @@ REGRAS CRÍTICAS PARA EXTRAÇÃO:
    - NÃO retorne coordenadas de tubulações, linhas ou elementos auxiliares
    - Precisão requerida: até 0.1 mm
    - Se um equipamento estiver parcialmente visível, estime o centro baseado na parte visível
+   
+   **ATENÇÃO ESPECIAL AO EIXO Y:**
+   - O eixo Y NÃO está invertido - Y cresce de cima para baixo (padrão de imagem)
+   - Y = 0.0 está no TOPO da imagem/quadrante
+   - Y = {height_mm} está na BASE da imagem/quadrante
+   - NUNCA inverta coordenadas Y - use a posição visual direta
+   - Exemplo: Um equipamento no topo da imagem tem Y próximo de 0, não de {height_mm}
+   - Exemplo: Um equipamento na base da imagem tem Y próximo de {height_mm}, não de 0
 
-2. TAGS E IDENTIFICAÇÃO:
+2. VALIDAÇÃO DE COORDENADAS:
+   - Antes de retornar coordenadas, verifique se fazem sentido visualmente
+   - Compare com conexões adjacentes: equipamentos conectados devem ter coordenadas próximas
+   - Se um equipamento está à esquerda de outro, seu X deve ser menor
+   - Se um equipamento está acima de outro, seu Y deve ser menor (não maior!)
+   - Cruze informações visuais para validar: "from" e "to" devem estar espacialmente coerentes
+
+3. TAGS E IDENTIFICAÇÃO:
    - Capture TAGs completas mesmo se prefixo e número estiverem separados visualmente
    - Exemplos: "PI 9039", "LT 101", "FV-2001", "P 101 A/B"
    - Se não houver TAG visível, use "tag": "N/A" mas capture o equipamento
    - Inclua sufixos importantes: A/B (redundância), -1/-2 (numeração)
 
-3. DESCRIÇÕES (nomenclatura ISA S5.1):
+4. DESCRIÇÕES (nomenclatura ISA S5.1):
    - Use terminologia técnica precisa segundo ISA
    - Exemplos: "Transmissor de Pressão", "Válvula de Controle de Vazão", "Bomba Centrífuga"
    - Especifique tipo quando visível: "Trocador de Calor Casco-Tubo", "Válvula Globo"
 
-4. CONEXÕES DE PROCESSO (from/to):
+5. CONEXÕES DE PROCESSO (from/to):
    - Identifique fluxo do processo: equipamento de origem → equipamento de destino
    - Use TAGs dos equipamentos conectados
    - Se não houver conexão clara, use "N/A"
    - Exemplo: "from": "T-101", "to": "P-201"
+   - VALIDAÇÃO: As coordenadas dos equipamentos em "from" e "to" devem estar próximas à tubulação que os conecta
 
-5. COMPLETUDE:
+6. COMPLETUDE:
    - Extraia TODOS os símbolos visíveis, mesmo sem TAG
    - Não omita instrumentos pequenos ou auxiliares
    - Capture válvulas manuais, drenos, vents, samplers
@@ -629,7 +911,9 @@ async def analyze_pdf(
     file: UploadFile,
     dpi: int = Query(400, ge=100, le=600),
     grid: int = Query(3, ge=1, le=6),
-    tol_mm: float = Query(10.0, ge=1.0, le=50.0)
+    tol_mm: float = Query(10.0, ge=1.0, le=50.0),
+    use_overlap: bool = Query(False, description="Use overlapping windows for better edge coverage"),
+    use_dynamic_tolerance: bool = Query(True, description="Use dynamic tolerance based on symbol size")
 ):
     if not OPENAI_API_KEY:
         raise HTTPException(status_code=400, detail="OPENAI_API_KEY não definida. Configure a chave no arquivo .env")
@@ -678,8 +962,15 @@ async def analyze_pdf(
         log_to_front(f"🌐 Global → itens: {len(global_list)}")
 
         if grid > 1:
-            quads = page_quadrants(page, grid_x=grid, grid_y=grid)
-            tasks = [process_quadrant(gx, gy, rect, page, W_mm, H_mm, dpi) for gx, gy, rect in quads]
+            # Use new overlapping quadrants if enabled
+            if use_overlap:
+                log_to_front(f"📊 Gerando quadrantes com sobreposição de 50%...")
+                quads_with_labels = page_quadrants_with_overlap(page, grid_x=grid, grid_y=grid, overlap_percent=0.5)
+                tasks = [process_quadrant(gx, gy, rect, page, W_mm, H_mm, dpi) for gx, gy, rect, label in quads_with_labels]
+            else:
+                quads = page_quadrants(page, grid_x=grid, grid_y=grid)
+                tasks = [process_quadrant(gx, gy, rect, page, W_mm, H_mm, dpi) for gx, gy, rect in quads]
+            
             results = await asyncio.gather(*tasks)
             for r in results:
                 quad_items.extend(r)
@@ -743,7 +1034,8 @@ async def analyze_pdf(
 
             combined.append(item)
 
-        unique = dedup_items(combined, page_num=page_num, tol_mm=tol_mm)
+        unique = dedup_items(combined, page_num=page_num, tol_mm=tol_mm, 
+                            use_dynamic_tolerance=use_dynamic_tolerance, log_metadata=False)
         log_to_front(f"📄 Página {page_num} | Global: {len(global_list)} | Quadrants: {len(quad_items)} | Únicos: {len(unique)}")
 
         all_pages.append({
