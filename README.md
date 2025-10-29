@@ -17,21 +17,35 @@ Este projeto é um **aplicativo web** para análise de diagramas P&ID usando **A
 - Visualização 2D do layout gerado
 - Exportação dos dados gerados (Excel/JSON)
 
-### Versão 5 (Nova! 🎉)
-- **🤖 Descrição Automática do Processo**: Após análise ou geração, a IA cria automaticamente uma descrição técnica completa incluindo:
+### Versão 5 (Nova! 🎉) - Versão 6 (Melhorada! 🔥)
+- **🤖 Descrição Ultra-Completa do Processo**: Após análise ou geração, a IA cria automaticamente uma descrição técnica ULTRA-DETALHADA incluindo:
   - Objetivo do Processo
-  - Etapas do Processo em sequência
-  - Função dos Equipamentos Principais
-  - Instrumentação e Controle
-  - Elementos de Segurança
-  - Fluxo de Materiais
-- **💬 Chatbot Inteligente Minimizável**: Assistente conversacional que responde perguntas específicas sobre o P&ID
-  - Histórico de conversação
+  - Inventário completo de TODOS os equipamentos com função e conexões
+  - **NOVO:** Instrumentação detalhada por equipamento (qual instrumento mede pressão/temperatura/vazão de cada equipamento)
+  - **NOVO:** Identificação de equipamentos reserva/backup (pares A/B, standby)
+  - **NOVO:** Fluxo detalhado passo-a-passo usando TAGs (ex: T-101 → P-101A → FT-101 → E-201)
+  - **NOVO:** Malhas de controle completas (sensor → controlador → atuador)
+  - Elementos de Segurança com localização
+  - Layout e distribuição espacial usando coordenadas
+- **💬 Chatbot Inteligente com Múltiplos Modos**: Assistente conversacional otimizado
+  - **NOVO:** Modo híbrido (detecta automaticamente tipo de pergunta)
+  - **NOVO:** Modo texto (usa descrição ultra-completa - mais rápido e barato)
+  - **NOVO:** Modo vision (analisa imagem do P&ID - mais preciso para perguntas visuais)
+  - **NOVO:** Descrição gerada uma única vez (economia de tokens)
+  - Histórico de conversação com indicação do modo usado
   - Perguntas sugeridas para facilitar o uso
   - Respostas contextuais baseadas no P&ID específico
   - Interface minimizável para não ocupar espaço
-- **💾 Base de Conhecimento**: Armazenamento automático de todos os P&IDs processados para consultas futuras
-- **🔍 Análise Contextual**: Capacidade de fazer perguntas sobre equipamentos, instrumentos, fluxo do processo, etc.
+  - Configuração avançada para escolher modo manualmente
+- **💾 Base de Conhecimento Otimizada**: Armazenamento automático com PDF original
+  - Armazena descrição ultra-completa pré-processada
+  - Armazena PDF original para modo vision
+  - Acesso rápido sem reprocessamento
+- **🔍 Análise Contextual Avançada**: Responde perguntas específicas como:
+  - "Qual instrumento mede a pressão da bomba P-101?"
+  - "Qual equipamento é reserva do P-101A?"
+  - "Qual é o fluxo do material desde T-101 até E-201?"
+  - "Onde está localizado o instrumento FT-101?"
 
 ## Como usar
 
@@ -50,17 +64,23 @@ Este projeto é um **aplicativo web** para análise de diagramas P&ID usando **A
 4. Visualize a tabela gerada com equipamentos e instrumentos
 5. Exporte os resultados (Excel/JSON)
 
-### Modo 3: Interagir com o Chatbot (Novo! 🤖)
+### Modo 3: Interagir com o Chatbot (Melhorado! 🔥)
 Após análise ou geração de um P&ID:
-1. **Visualize a descrição automática** do processo (expandida automaticamente)
+1. **Visualize a descrição ultra-completa** do processo (expandida automaticamente)
 2. **Role até o final da página** para encontrar o chatbot minimizável
-3. **Faça perguntas** sobre o P&ID específico:
+3. **Configure o modo do chatbot** (opcional - padrão é híbrido):
+   - **Híbrido**: Detecta automaticamente (recomendado)
+   - **Texto**: Sempre usa descrição ultra-completa
+   - **Vision**: Sempre analisa imagem do P&ID
+4. **Faça perguntas** sobre o P&ID específico:
    - "Quais são os principais equipamentos?"
-   - "Como funciona o controle de temperatura?"
-   - "Explique o fluxo do processo"
-4. **Use os botões de exemplo** para perguntas comuns
-5. **Visualize o histórico** de todas as suas perguntas e respostas
-6. **Minimize o chatbot** quando não estiver usando
+   - "Qual instrumento mede a pressão da bomba P-101?"
+   - "Qual equipamento é reserva do P-101A?"
+   - "Onde está localizado o tanque T-101?" (modo vision)
+   - "Qual é o fluxo do material desde T-101 até E-201?"
+5. **Use os botões de exemplo** para perguntas comuns
+6. **Visualize o histórico** de todas as suas perguntas e respostas (com indicação do modo usado)
+7. **Minimize o chatbot** quando não estiver usando
 
 ![Chatbot Feature](https://github.com/user-attachments/assets/d9222492-37ca-4681-9e12-59d2d4f489d5)
 
@@ -168,16 +188,35 @@ Gera descrição técnica completa de um P&ID armazenado.
 }
 ```
 
-### POST `/chat` (Novo! 🆕)
-Chatbot que responde perguntas sobre um P&ID específico.
+### POST `/chat` (Melhorado! 🔥)
+Chatbot inteligente que responde perguntas sobre um P&ID específico com suporte a múltiplos modos.
 
 **Parâmetros:**
 - `pid_id`: ID do P&ID
 - `question`: Pergunta do usuário
+- `mode` (opcional): Modo de resposta - `text`, `vision` ou `null` para automático (hybrid)
+
+**Modos disponíveis:**
+- **`text`**: Usa descrição ultra-completa pré-gerada (mais rápido, mais barato)
+  - Ideal para perguntas sobre função, fluxo, equipamentos, instrumentação
+  - Descrição gerada uma única vez e reutilizada
+- **`vision`**: Envia imagem do P&ID para análise visual (mais preciso, mais caro)
+  - Ideal para perguntas sobre layout, posição, símbolos, distribuição espacial
+  - Requer que o P&ID tenha sido analisado a partir de PDF
+- **`hybrid`** (padrão): Detecta automaticamente o melhor modo
+  - Perguntas com "onde", "posição", "localização" → usa vision
+  - Outras perguntas → usa text
 
 **Exemplo:**
 ```bash
+# Modo automático (hybrid)
 curl -X POST "http://localhost:8000/chat?pid_id=analyzed_20241011_172600&question=Quais%20são%20os%20principais%20equipamentos?"
+
+# Modo texto explícito
+curl -X POST "http://localhost:8000/chat?pid_id=analyzed_20241011_172600&question=Qual%20instrumento%20mede%20a%20pressão%20da%20bomba%20P-101?&mode=text"
+
+# Modo vision explícito
+curl -X POST "http://localhost:8000/chat?pid_id=analyzed_20241011_172600&question=Onde%20está%20localizado%20o%20tanque%20T-101?&mode=vision"
 ```
 
 **Retorna:**
@@ -185,9 +224,31 @@ curl -X POST "http://localhost:8000/chat?pid_id=analyzed_20241011_172600&questio
 {
   "pid_id": "analyzed_20241011_172600",
   "question": "Quais são os principais equipamentos?",
-  "answer": "Os principais equipamentos identificados são: P-101 (Bomba Centrífuga)..."
+  "answer": "Os principais equipamentos identificados são: P-101 (Bomba Centrífuga)...",
+  "mode_used": "text"
 }
 ```
+
+**Descrição Ultra-Completa:**
+
+O chatbot em modo `text` usa uma descrição ultra-completa que é gerada automaticamente uma única vez quando o P&ID é analisado. Esta descrição inclui:
+
+- **Todos os equipamentos** com função, conexões (from/to) e coordenadas
+- **Todos os instrumentos** agrupados por tipo (PT, TT, FT, LT, etc.)
+- **Instrumentação por equipamento**: qual instrumento mede pressão/temperatura/vazão de cada equipamento
+- **Equipamentos reserva/backup**: identificação de pares A/B, equipamentos standby
+- **Fluxo detalhado do processo**: caminho completo usando TAGs (ex: T-101 → P-101A → FT-101 → FCV-101 → E-201)
+- **Malhas de controle**: identificação completa de loops (sensor → controlador → atuador)
+- **Elementos de segurança**: PSVs, alarmes, switches com localização
+- **Layout espacial**: distribuição de equipamentos por região usando coordenadas
+
+Exemplos de perguntas que podem ser respondidas:
+- "Qual instrumento mede a pressão da bomba P-101?"
+- "Qual equipamento é reserva do P-101A?"
+- "Qual é o fluxo do material desde T-101 até E-201?"
+- "Quais instrumentos estão associados ao trocador de calor E-201?"
+- "Onde estão localizadas as válvulas de segurança?"
+
 
 ### POST `/store` (Novo! 🆕)
 Armazena dados de P&ID na base de conhecimento.
