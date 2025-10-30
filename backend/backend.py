@@ -1040,12 +1040,24 @@ EQUIPAMENTOS A IDENTIFICAR (lista não exaustiva):
 
 REGRAS CRÍTICAS PARA EXTRAÇÃO:
 
-1. COORDENADAS (PRECISÃO MÁXIMA):
-   - Meça as coordenadas com MÁXIMA PRECISÃO em relação à imagem que você está vendo
-   - As coordenadas devem referenciar o CENTRO/MEIO do equipamento ou instrumento
+1. COORDENADAS (PRECISÃO MÁXIMA - CRÍTICO):
+   - Meça as coordenadas com MÁXIMA PRECISÃO ABSOLUTA em relação à imagem que você está vendo
+   - As coordenadas devem referenciar o CENTRO GEOMÉTRICO EXATO do equipamento ou instrumento
+   - Para símbolos com contorno/borda visível: meça o centro entre as extremidades esquerda-direita e topo-base
+   - Para símbolos circulares (bombas, tanques): identifique o centro visual do círculo
+   - Para símbolos retangulares (trocadores, vasos): meça o ponto médio da figura
+   - Para instrumentos (círculos pequenos com TAG): meça o centro do círculo do símbolo ISA
    - NÃO retorne coordenadas de tubulações, linhas ou elementos auxiliares
-   - Precisão requerida: até 0.1 mm
+   - Precisão OBRIGATÓRIA: até 0.1 mm - cada milímetro conta!
    - Se um equipamento estiver parcialmente visível, estime o centro baseado na parte visível
+   - DUPLA VERIFICAÇÃO: Após medir, verifique se a coordenada está no centro visual do símbolo
+   
+   **MÉTODO DE MEDIÇÃO (PASSO A PASSO):**
+   1. Identifique os limites visuais do símbolo (esquerda, direita, topo, base)
+   2. Calcule X = (limite_esquerdo + limite_direito) / 2
+   3. Calcule Y = (limite_topo + limite_base) / 2
+   4. Verifique se o ponto (X,Y) está no centro visual do símbolo
+   5. Ajuste se necessário para garantir precisão máxima
    
    **ATENÇÃO ESPECIAL AO EIXO Y:**
    - O eixo Y NÃO está invertido - Y cresce de cima para baixo (padrão de imagem)
@@ -1055,12 +1067,14 @@ REGRAS CRÍTICAS PARA EXTRAÇÃO:
    - Exemplo: Um equipamento no topo da imagem tem Y próximo de 0, não de {height_mm}
    - Exemplo: Um equipamento na base da imagem tem Y próximo de {height_mm}, não de 0
 
-2. VALIDAÇÃO DE COORDENADAS:
-   - Antes de retornar coordenadas, verifique se fazem sentido visualmente
+2. VALIDAÇÃO DE COORDENADAS (OBRIGATÓRIA):
+   - Antes de retornar coordenadas, SEMPRE verifique se fazem sentido visualmente
    - Compare com conexões adjacentes: equipamentos conectados devem ter coordenadas próximas
    - Se um equipamento está à esquerda de outro, seu X deve ser menor
    - Se um equipamento está acima de outro, seu Y deve ser menor (não maior!)
    - Cruze informações visuais para validar: "from" e "to" devem estar espacialmente coerentes
+   - VALIDAÇÃO FINAL: Mentalmente sobreponha as coordenadas na imagem - devem coincidir perfeitamente
+   - Se houver dúvida, refaça a medição com mais atenção aos limites do símbolo
 
 3. TAGS E IDENTIFICAÇÃO:
    - Capture TAGs completas mesmo se prefixo e número estiverem separados visualmente
@@ -1087,6 +1101,13 @@ REGRAS CRÍTICAS PARA EXTRAÇÃO:
    - Inclua símbolos parcialmente visíveis (estimando coordenadas do centro)
 
 FORMATO DE SAÍDA (JSON OBRIGATÓRIO):
+
+IMPORTANTE SOBRE COORDENADAS:
+- x_mm e y_mm devem ser números com precisão de 0.1 mm (uma casa decimal)
+- Use valores como 234.5, 567.8, 1045.3 (NÃO arredonde para inteiros)
+- Garanta que as coordenadas referenciam o centro geométrico exato do símbolo
+- Exemplo: Para uma bomba centralizada em (234.5, 567.8), NÃO use (234, 567) ou (235, 568)
+
 [
   {{
     "tag": "P-101",
@@ -1251,7 +1272,7 @@ async def analyze_pdf(
     use_overlap: bool = Query(False, description="Use overlapping windows for better edge coverage"),
     use_dynamic_tolerance: bool = Query(True, description="Use dynamic tolerance based on symbol size"),
     use_ocr_validation: bool = Query(False, description="Validate TAGs using OCR (requires pytesseract)"),
-    use_geometric_refinement: bool = Query(False, description="Refine coordinates to geometric center")
+    use_geometric_refinement: bool = Query(True, description="Refine coordinates to geometric center (enabled by default for better accuracy)")
 ):
     if not OPENAI_API_KEY:
         raise HTTPException(status_code=400, detail="OPENAI_API_KEY não definida. Configure a chave no arquivo .env")
@@ -1342,9 +1363,19 @@ async def analyze_pdf(
             # No Y flip - top-left origin (0,0) for both y_mm and y_mm_cad
             y_cad = y_in
 
-            # clamp
+            # Validate coordinates before clamping
+            x_was_clamped = x_in < 0.0 or x_in > W_mm
+            y_was_clamped = y_in < 0.0 or y_in > H_mm
+            
+            # clamp to page bounds
+            x_in_orig = x_in
+            y_in_orig = y_in
             x_in = max(0.0, min(W_mm, x_in))
             y_in = max(0.0, min(H_mm, y_in))
+            
+            # Log warning if coordinates were out of bounds (may indicate extraction issue)
+            if x_was_clamped or y_was_clamped:
+                log_to_front(f"   ⚠️ Coordenadas ajustadas para {tag}: ({x_in_orig:.1f}, {y_in_orig:.1f}) → ({x_in:.1f}, {y_in:.1f})")
 
             item = {
                 "tag": tag,
@@ -1619,8 +1650,11 @@ SPATIAL DISTRIBUTION AND LAYOUT:
 
 **CRITICAL RULE FOR COORDINATES:**
 - Coordinates (x_mm, y_mm) must ALWAYS reference the CENTER/MIDDLE of the equipment or instrument
+- Use decimal precision: 0.1 mm (one decimal place) - examples: 150.5, 234.8, 567.3
+- DO NOT use integer coordinates - add .0 or appropriate decimal: use 150.5 instead of 150
 - DO NOT consider piping, process lines, or other auxiliary elements when defining coordinates
 - Only equipment (P-XXX, T-XXX, E-XXX, etc.) and instruments (FT-XXX, PT-XXX, etc.) should have coordinates
+- Guarantee that coordinates are EXACTLY at the geometric center of symbols
 
 PROCESS CONNECTIONS (from/to):
 - Define logical process flow
@@ -1640,44 +1674,50 @@ COMPLETENESS AND DETAIL:
 
 
 OUTPUT FORMAT (JSON):
+
+COORDINATE PRECISION REQUIREMENTS:
+- All x_mm and y_mm values MUST have decimal precision (0.1 mm)
+- Use format: 150.5, 234.8, 567.3 (NOT 150, 234, 567)
+- Coordinates reference the EXACT geometric center of symbols
+
 [
   {{
     "tag": "T-101",
     "descricao": "Feed Tank",
-    "x_mm": 150.0,
-    "y_mm": 450.0,
+    "x_mm": 150.5,
+    "y_mm": 450.8,
     "from": "N/A",
     "to": "P-101"
   }},
   {{
     "tag": "P-101",
     "descricao": "Centrifugal Feed Pump",
-    "x_mm": 250.0,
-    "y_mm": 400.0,
+    "x_mm": 250.3,
+    "y_mm": 400.2,
     "from": "T-101",
     "to": "E-201"
   }},
   {{
     "tag": "FT-101",
     "descricao": "Flow Transmitter",
-    "x_mm": 280.0,
-    "y_mm": 380.0,
+    "x_mm": 280.7,
+    "y_mm": 380.5,
     "from": "P-101",
     "to": "FCV-101"
   }},
   {{
     "tag": "FCV-101",
     "descricao": "Flow Control Valve",
-    "x_mm": 320.0,
-    "y_mm": 380.0,
+    "x_mm": 320.4,
+    "y_mm": 380.5,
     "from": "FT-101",
     "to": "E-201"
   }},
   {{
     "tag": "PT-102",
     "descricao": "Pressure Transmitter",
-    "x_mm": 270.0,
-    "y_mm": 420.0,
+    "x_mm": 270.6,
+    "y_mm": 420.1,
     "from": "P-101",
     "to": "N/A"
   }}
@@ -1686,6 +1726,7 @@ OUTPUT FORMAT (JSON):
 IMPORTANT:
 - Return ONLY the JSON array, without additional text, markdown, or explanations
 - Coordinates must be within limits: X: 0-{width_mm}, Y: 0-{height_mm}
+- Coordinates MUST use decimal precision (e.g., 150.5, NOT 150)
 - Coordinates must reference the CENTER of equipment and instruments (not piping)
 - This is an educational example to demonstrate P&ID concepts and ISA standards
 - Include ALL typical essential elements: equipment, instrumentation, valves, controls
