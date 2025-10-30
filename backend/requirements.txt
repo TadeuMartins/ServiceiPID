@@ -10,3 +10,6 @@ numpy
 openpyxl
 pillow
 python-dotenv
+opencv-python
+pytesseract
+scikit-image
