@@ -1272,7 +1272,8 @@ async def analyze_pdf(
     use_overlap: bool = Query(False, description="Use overlapping windows for better edge coverage"),
     use_dynamic_tolerance: bool = Query(True, description="Use dynamic tolerance based on symbol size"),
     use_ocr_validation: bool = Query(False, description="Validate TAGs using OCR (requires pytesseract)"),
-    use_geometric_refinement: bool = Query(True, description="Refine coordinates to geometric center (enabled by default for better accuracy)")
+    use_geometric_refinement: bool = Query(True, description="Refine coordinates to geometric center (enabled by default for better accuracy)"),
+    diagram_type: str = Query("pid", description="Diagram type: 'pid' for P&ID or 'electrical' for Electrical Diagram")
 ):
     if not OPENAI_API_KEY:
         raise HTTPException(status_code=400, detail="OPENAI_API_KEY não definida. Configure a chave no arquivo .env")
@@ -1392,13 +1393,14 @@ async def analyze_pdf(
 
             try:
                 tipo = it.get("tipo", "")
-                match = match_system_fullname(item["tag"], item["descricao"], tipo)
+                match = match_system_fullname(item["tag"], item["descricao"], tipo, diagram_type)
                 item.update(match)
             except Exception as e:
                 item.update({
                     "SystemFullName": None,
                     "Confiança": 0,
-                    "matcher_error": str(e)
+                    "matcher_error": str(e),
+                    "diagram_type": diagram_type
                 })
 
             combined.append(item)
@@ -1738,7 +1740,8 @@ IMPORTANT:
 
 @app.post("/generate")
 async def generate_pid(
-    prompt: str = Query(..., description="Descrição do processo em linguagem natural")
+    prompt: str = Query(..., description="Descrição do processo em linguagem natural"),
+    diagram_type: str = Query("pid", description="Diagram type: 'pid' for P&ID or 'electrical' for Electrical Diagram")
 ):
     """
     Gera P&ID a partir de descrição em linguagem natural.
@@ -1834,14 +1837,15 @@ async def generate_pid(
             # Aplica matcher para SystemFullName
             try:
                 tipo = it.get("tipo", "")
-                match = match_system_fullname(item["tag"], item["descricao"], tipo)
+                match = match_system_fullname(item["tag"], item["descricao"], tipo, diagram_type)
                 item.update(match)
                 log_to_front(f"  ✓ {item['tag']}: {match.get('SystemFullName', 'N/A')}")
             except Exception as e:
                 item.update({
                     "SystemFullName": None,
                     "Confiança": 0,
-                    "matcher_error": str(e)
+                    "matcher_error": str(e),
+                    "diagram_type": diagram_type
                 })
             
             result_items.append(item)

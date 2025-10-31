@@ -52,10 +52,30 @@ tab1, tab2 = st.tabs(["📂 Analisar PDF", "🎨 Gerar a partir de Prompt"])
 
 with tab1:
     st.markdown("### Analise um P&ID existente")
+    
+    # Diagram type selector
+    diagram_type_analyze = st.selectbox(
+        "Tipo de Diagrama:",
+        options=[("P&ID", "pid"), ("Diagrama Elétrico", "electrical")],
+        format_func=lambda x: x[0],
+        key="diagram_type_analyze",
+        help="Selecione o tipo de diagrama para usar a referência apropriada no system matcher"
+    )
+    
     uploaded_file = st.file_uploader("📂 Envie um arquivo PDF de P&ID", type=["pdf"])
 
 with tab2:
     st.markdown("### Gere um P&ID a partir de descrição em linguagem natural")
+    
+    # Diagram type selector
+    diagram_type_generate = st.selectbox(
+        "Tipo de Diagrama:",
+        options=[("P&ID", "pid"), ("Diagrama Elétrico", "electrical")],
+        format_func=lambda x: x[0],
+        key="diagram_type_generate",
+        help="Selecione o tipo de diagrama para usar a referência apropriada no system matcher"
+    )
+    
     st.markdown("""
     **Exemplo de prompt:**
     - "Gere um P&ID completo de um processo de clinquerização"
@@ -99,7 +119,10 @@ if uploaded_file:
         with st.spinner("⏳ Processando com IA..."):
             try:
                 files = {"file": uploaded_file.getvalue()}
-                response = requests.post(API_URL, files=files, timeout=3600)
+                # Get diagram type value from the selectbox
+                diagram_type_value = diagram_type_analyze[1]  # Extract the value from the tuple
+                params = {"diagram_type": diagram_type_value}
+                response = requests.post(API_URL, files=files, params=params, timeout=3600)
             except Exception as e:
                 st.error(f"❌ Erro ao conectar com backend: {e}")
                 st.stop()
@@ -259,7 +282,9 @@ if generate_button and prompt_text:
         
         with st.spinner("⏳ Gerando P&ID com IA..."):
             try:
-                params = {"prompt": prompt_text}
+                # Get diagram type value from the selectbox
+                diagram_type_value = diagram_type_generate[1]  # Extract the value from the tuple
+                params = {"prompt": prompt_text, "diagram_type": diagram_type_value}
                 response = requests.post(GENERATE_URL, params=params, timeout=600)
             except Exception as e:
                 st.error(f"❌ Erro ao conectar com backend: {e}")

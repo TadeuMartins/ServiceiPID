@@ -21,19 +21,28 @@ def make_client(verify_ssl: bool = True) -> OpenAI:
     )
     return OpenAI(api_key=OPENAI_API_KEY, http_client=http_client)
 
-# Planilha de referência
-REF_PATH = os.getenv("REF_XLSX_PATH", "referencia_systems.xlsx")
-CACHE_FILE = "ref_embeddings.pkl"
+# Planilhas de referência
+REF_PATH_PID = os.getenv("REF_XLSX_PATH_PID", "referencia_systems.xlsx")
+REF_PATH_ELECTRICAL = os.getenv("REF_XLSX_PATH_ELECTRICAL", "Referencia_systems_electrical.xlsx")
+CACHE_FILE_PID = "ref_embeddings_pid.pkl"
+CACHE_FILE_ELECTRICAL = "ref_embeddings_electrical.pkl"
 
 # Global variables for lazy initialization
 client = None
-df_ref = None
-ref_embeddings = None
-ref_texts = None
 
-def _initialize():
-    """Initialize client and load/create embeddings lazily."""
-    global client, df_ref, ref_embeddings, ref_texts
+# P&ID reference data
+df_ref_pid = None
+ref_embeddings_pid = None
+ref_texts_pid = None
+
+# Electrical diagram reference data
+df_ref_electrical = None
+ref_embeddings_electrical = None
+ref_texts_electrical = None
+
+def _initialize_client():
+    """Initialize OpenAI client."""
+    global client
     
     if client is not None:
         return  # Already initialized
@@ -43,31 +52,70 @@ def _initialize():
         raise ValueError("OPENAI_API_KEY não definido. Configure a chave no arquivo .env")
     
     client = make_client(verify_ssl=False)
+
+
+def _initialize_pid():
+    """Initialize P&ID reference data and embeddings lazily."""
+    global df_ref_pid, ref_embeddings_pid, ref_texts_pid
     
-    df_ref = pd.read_excel(REF_PATH)
+    if df_ref_pid is not None:
+        return  # Already initialized
     
-    assert all(col in df_ref.columns for col in ["Type", "Descricao", "SystemFullName"]), \
-        "Planilha precisa ter colunas: Type, Descricao, SystemFullName"
+    _initialize_client()
+    
+    df_ref_pid = pd.read_excel(REF_PATH_PID)
+    
+    assert all(col in df_ref_pid.columns for col in ["Type", "Descricao", "SystemFullName"]), \
+        "Planilha P&ID precisa ter colunas: Type, Descricao, SystemFullName"
     
     # Carrega cache se existir, senão gera e salva
-    ref_texts = (df_ref["Type"].fillna("") + " " + df_ref["Descricao"].fillna("")).tolist()
+    ref_texts_pid = (df_ref_pid["Type"].fillna("") + " " + df_ref_pid["Descricao"].fillna("")).tolist()
     
-    if os.path.exists(CACHE_FILE):
-        with open(CACHE_FILE, "rb") as f:
-            ref_embeddings = pickle.load(f)
-        print(f"📂 Embeddings carregados do cache: {len(ref_embeddings)} itens")
+    if os.path.exists(CACHE_FILE_PID):
+        with open(CACHE_FILE_PID, "rb") as f:
+            ref_embeddings_pid = pickle.load(f)
+        print(f"📂 Embeddings P&ID carregados do cache: {len(ref_embeddings_pid)} itens")
     else:
-        ref_embeddings = embed_texts(ref_texts)
-        with open(CACHE_FILE, "wb") as f:
-            pickle.dump(ref_embeddings, f)
-        print(f"✅ Embeddings gerados e salvos em cache: {len(ref_embeddings)} itens")
+        ref_embeddings_pid = embed_texts(ref_texts_pid)
+        with open(CACHE_FILE_PID, "wb") as f:
+            pickle.dump(ref_embeddings_pid, f)
+        print(f"✅ Embeddings P&ID gerados e salvos em cache: {len(ref_embeddings_pid)} itens")
     
-    ref_embeddings = np.array(ref_embeddings)
+    ref_embeddings_pid = np.array(ref_embeddings_pid)
+
+
+def _initialize_electrical():
+    """Initialize Electrical diagram reference data and embeddings lazily."""
+    global df_ref_electrical, ref_embeddings_electrical, ref_texts_electrical
+    
+    if df_ref_electrical is not None:
+        return  # Already initialized
+    
+    _initialize_client()
+    
+    df_ref_electrical = pd.read_excel(REF_PATH_ELECTRICAL)
+    
+    assert all(col in df_ref_electrical.columns for col in ["Type", "Descricao", "SystemFullName"]), \
+        "Planilha Electrical precisa ter colunas: Type, Descricao, SystemFullName"
+    
+    # Carrega cache se existir, senão gera e salva
+    ref_texts_electrical = (df_ref_electrical["Type"].fillna("") + " " + df_ref_electrical["Descricao"].fillna("")).tolist()
+    
+    if os.path.exists(CACHE_FILE_ELECTRICAL):
+        with open(CACHE_FILE_ELECTRICAL, "rb") as f:
+            ref_embeddings_electrical = pickle.load(f)
+        print(f"📂 Embeddings Electrical carregados do cache: {len(ref_embeddings_electrical)} itens")
+    else:
+        ref_embeddings_electrical = embed_texts(ref_texts_electrical)
+        with open(CACHE_FILE_ELECTRICAL, "wb") as f:
+            pickle.dump(ref_embeddings_electrical, f)
+        print(f"✅ Embeddings Electrical gerados e salvos em cache: {len(ref_embeddings_electrical)} itens")
+    
+    ref_embeddings_electrical = np.array(ref_embeddings_electrical)
 
 # Função para criar embeddings
 def embed_texts(texts):
-    if client is None:
-        _initialize()
+    _initialize_client()
     resp = client.embeddings.create(
         model="text-embedding-3-small",
         input=texts
@@ -96,11 +144,32 @@ def cosine_similarity(a, b):
     return float(similarity)
 
 # --- Matcher principal ---
-def match_system_fullname(tag: str, descricao: str, tipo: str = "") -> dict:
+def match_system_fullname(tag: str, descricao: str, tipo: str = "", diagram_type: str = "pid") -> dict:
+    """
+    Match system full name based on tag, description, and type.
+    
+    Args:
+        tag: Equipment tag
+        descricao: Equipment description
+        tipo: Equipment type
+        diagram_type: Type of diagram - "pid" for P&ID or "electrical" for Electrical Diagram
+    
+    Returns:
+        Dictionary with SystemFullName, confidence, and reference data
+    """
     try:
-        # Initialize on first use
-        if client is None:
-            _initialize()
+        # Initialize appropriate reference data based on diagram type
+        if diagram_type.lower() == "electrical":
+            _initialize_electrical()
+            df_ref = df_ref_electrical
+            ref_embeddings = ref_embeddings_electrical
+            diagram_label = "Electrical"
+        else:
+            # Default to P&ID
+            _initialize_pid()
+            df_ref = df_ref_pid
+            ref_embeddings = ref_embeddings_pid
+            diagram_label = "P&ID"
         
         query_text = f"{tipo} {tag} {descricao}".strip()
         emb_q = client.embeddings.create(
@@ -118,7 +187,8 @@ def match_system_fullname(tag: str, descricao: str, tipo: str = "") -> dict:
             "SystemFullName": ref_row["SystemFullName"],
             "Confiança": round(best_score, 4),
             "Tipo_ref": ref_row["Type"],
-            "Descricao_ref": ref_row["Descricao"]
+            "Descricao_ref": ref_row["Descricao"],
+            "diagram_type": diagram_label
         }
     except Exception as e:
         return {
@@ -126,6 +196,7 @@ def match_system_fullname(tag: str, descricao: str, tipo: str = "") -> dict:
             "Confiança": 0.0,
             "Tipo_ref": tipo or "N/A",
             "Descricao_ref": descricao or "N/A",
-            "matcher_error": str(e)
+            "matcher_error": str(e),
+            "diagram_type": diagram_type
         }
 
