@@ -21,11 +21,14 @@ def make_client(verify_ssl: bool = True) -> OpenAI:
     )
     return OpenAI(api_key=OPENAI_API_KEY, http_client=http_client)
 
-# Planilhas de referência
-REF_PATH_PID = os.getenv("REF_XLSX_PATH_PID", "referencia_systems.xlsx")
-REF_PATH_ELECTRICAL = os.getenv("REF_XLSX_PATH_ELECTRICAL", "Referencia_systems_electrical.xlsx")
-CACHE_FILE_PID = "ref_embeddings_pid.pkl"
-CACHE_FILE_ELECTRICAL = "ref_embeddings_electrical.pkl"
+# Get the directory where this file is located
+BACKEND_DIR = os.path.dirname(os.path.abspath(__file__))
+
+# Planilhas de referência - resolve paths relative to backend directory
+REF_PATH_PID = os.getenv("REF_XLSX_PATH_PID", os.path.join(BACKEND_DIR, "referencia_systems.xlsx"))
+REF_PATH_ELECTRICAL = os.getenv("REF_XLSX_PATH_ELECTRICAL", os.path.join(BACKEND_DIR, "Referencia_systems_electrical.xlsx"))
+CACHE_FILE_PID = os.path.join(BACKEND_DIR, "ref_embeddings_pid.pkl")
+CACHE_FILE_ELECTRICAL = os.path.join(BACKEND_DIR, "ref_embeddings_electrical.pkl")
 
 # Global variables for lazy initialization
 client = None
@@ -112,6 +115,35 @@ def _initialize_electrical():
         print(f"✅ Embeddings Electrical gerados e salvos em cache: {len(ref_embeddings_electrical)} itens")
     
     ref_embeddings_electrical = np.array(ref_embeddings_electrical)
+
+
+def ensure_embeddings_exist():
+    """
+    Ensure embeddings exist for both P&ID and Electrical diagrams.
+    Called on backend startup to initialize embeddings if they don't exist.
+    """
+    try:
+        print("🔍 Verificando embeddings...")
+        
+        # Check and initialize P&ID embeddings
+        if not os.path.exists(CACHE_FILE_PID):
+            print(f"⚠️  Cache de embeddings P&ID não encontrado. Criando...")
+            _initialize_pid()
+        else:
+            print(f"✅ Cache de embeddings P&ID encontrado: {CACHE_FILE_PID}")
+        
+        # Check and initialize Electrical embeddings
+        if not os.path.exists(CACHE_FILE_ELECTRICAL):
+            print(f"⚠️  Cache de embeddings Electrical não encontrado. Criando...")
+            _initialize_electrical()
+        else:
+            print(f"✅ Cache de embeddings Electrical encontrado: {CACHE_FILE_ELECTRICAL}")
+        
+        print("✅ Verificação de embeddings concluída")
+        return True
+    except Exception as e:
+        print(f"❌ Erro ao verificar embeddings: {e}")
+        return False
 
 # Função para criar embeddings
 def embed_texts(texts):
