@@ -35,6 +35,15 @@ from system_matcher import match_system_fullname, ensure_embeddings_exist
 load_dotenv()
 
 # =================================================
+# 🔑 COORDINATE CONVERSION CONSTANTS
+# =================================================
+# PDF uses PostScript points: 1 point = 1/72 inch
+# 1 inch = 25.4 mm
+# Therefore: 1 point = 25.4/72 mm (exact conversion)
+PT_TO_MM = 25.4 / 72  # Exact: 0.3527777... mm per point
+MM_TO_PT = 72 / 25.4  # Exact: 2.8346456... points per mm
+
+# =================================================
 # 🔑 CONFIG OPENAI
 # =================================================
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
@@ -153,7 +162,35 @@ def ping():
 # FUNÇÕES AUXILIARES
 # ============================================================
 def points_to_mm(points: float) -> float:
-    return round(points * 0.3528, 3)
+    """
+    Convert PDF points to millimeters with exact precision.
+    
+    Uses the exact conversion factor: 1 point = 25.4/72 mm
+    This ensures coordinates are identical to the PDF.
+    
+    Args:
+        points: Coordinate value in PostScript points
+        
+    Returns:
+        Coordinate value in millimeters (rounded to 3 decimal places for precision)
+    """
+    return round(points * PT_TO_MM, 3)
+
+
+def mm_to_points(mm: float) -> float:
+    """
+    Convert millimeters to PDF points with exact precision.
+    
+    Uses the exact conversion factor: 1 mm = 72/25.4 points
+    This is the inverse of points_to_mm and ensures perfect round-trip conversion.
+    
+    Args:
+        mm: Coordinate value in millimeters
+        
+    Returns:
+        Coordinate value in PostScript points
+    """
+    return mm * MM_TO_PT
 
 
 def clean_markdown_fences(text: str) -> str:
@@ -729,9 +766,9 @@ def validate_tag_with_ocr(page: fitz.Page, item: Dict[str, Any], dpi: int = 300,
         from PIL import Image
         
         # Convert coordinates to points
-        x_pts = item["x_mm"] / 0.3528
-        y_pts = item["y_mm"] / 0.3528
-        search_radius_pts = search_radius_mm / 0.3528
+        x_pts = mm_to_points(item["x_mm"])
+        y_pts = mm_to_points(item["y_mm"])
+        search_radius_pts = mm_to_points(search_radius_mm)
         
         # Create search rectangle around the item
         rect = fitz.Rect(
@@ -908,9 +945,9 @@ def refine_geometric_center(page: fitz.Page, item: Dict[str, Any],
         from skimage import measure
         
         # Convert coordinates to points
-        x_pts = item["x_mm"] / 0.3528
-        y_pts = item["y_mm"] / 0.3528
-        search_radius_pts = search_radius_mm / 0.3528
+        x_pts = mm_to_points(item["x_mm"])
+        y_pts = mm_to_points(item["y_mm"])
+        search_radius_pts = mm_to_points(search_radius_mm)
         
         # Create search rectangle around the item
         rect = fitz.Rect(
@@ -972,8 +1009,8 @@ def refine_geometric_center(page: fitz.Page, item: Dict[str, Any],
         centroid_y_pts = rect.y0 + (centroid_y / img.height) * rect.height
         
         # Convert to mm
-        refined_x_mm = centroid_x_pts * 0.3528
-        refined_y_mm = centroid_y_pts * 0.3528
+        refined_x_mm = points_to_mm(centroid_x_pts)
+        refined_y_mm = points_to_mm(centroid_y_pts)
         
         # Calculate offset
         offset_x_mm = refined_x_mm - item["x_mm"]
