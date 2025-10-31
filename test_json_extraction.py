@@ -5,7 +5,11 @@ This validates that the parsing logic will work with LLM responses.
 """
 
 import sys
-sys.path.insert(0, 'backend')
+import os
+
+# Add backend to path
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'backend'))
+
 from backend import ensure_json_list
 
 def test_valid_json_array():
