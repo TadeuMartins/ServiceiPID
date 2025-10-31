@@ -219,13 +219,81 @@ def sanitize_for_json(obj: Any) -> Any:
 def assign_no_tag_identifiers(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """
     Assign sequential NO-TAG identifiers to equipment without valid tags.
-    Equipment with tag "N/A" will be renamed to "NO-TAG1", "NO-TAG2", etc.
+    Equipment with tag "N/A" will be renamed based on instrument type:
+    - PT-notag1, PT-notag2 for Transmissor de Pressão
+    - PI-notag1, PI-notag2 for Indicador de Pressão
+    - etc.
     """
-    no_tag_counter = 1
+    # Mapping from description keywords to instrument prefixes
+    instrument_type_mapping = {
+        # Pressure instruments
+        "transmissor de pressão": "PT",
+        "pressure transmitter": "PT",
+        "indicador de pressão": "PI",
+        "pressure indicator": "PI",
+        "chave de pressão alta": "PSH",
+        "pressure switch high": "PSH",
+        "chave de pressão baixa": "PSL",
+        "pressure switch low": "PSL",
+        
+        # Temperature instruments
+        "controlador indicativo de temperatura": "TIC",
+        "temperature indicating controller": "TIC",
+        "indicador de temperatura": "TI",
+        "temperature indicator": "TI",
+        "transmissor de temperatura": "TT",
+        "temperature transmitter": "TT",
+        
+        # Level instruments
+        "transmissor de nível": "LT",
+        "level transmitter": "LT",
+        "controlador indicação de nível": "LIC",
+        "controlador de nível": "LIC",
+        "level indicating controller": "LIC",
+        "level controller": "LIC",
+        
+        # Flow instruments
+        "indicador de vazão": "FI",
+        "flow indicator": "FI",
+        "transmissor de vazão": "FT",
+        "flow transmitter": "FT",
+        "controlador de vazão": "FIC",
+        "flow indicating controller": "FIC",
+        "flow controller": "FIC",
+        "válvula de controle de vazão": "FV",
+        "flow control valve": "FV",
+    }
+    
+    # Track counters for each instrument prefix
+    prefix_counters = {}
+    
     for item in items:
         if item.get("tag") == "N/A":
-            item["tag"] = f"NO-TAG{no_tag_counter}"
-            no_tag_counter += 1
+            descricao = item.get("descricao", "").lower()
+            
+            # Detect instrument type from description
+            prefix = None
+            for keyword, instrument_prefix in instrument_type_mapping.items():
+                if keyword in descricao:
+                    prefix = instrument_prefix
+                    break
+            
+            # If no specific instrument type is detected, use generic NO-TAG
+            if prefix is None:
+                prefix = "NO-TAG"
+            
+            # Get or initialize counter for this prefix
+            if prefix not in prefix_counters:
+                prefix_counters[prefix] = 1
+            
+            # Assign tag based on prefix
+            if prefix == "NO-TAG":
+                item["tag"] = f"NO-TAG{prefix_counters[prefix]}"
+            else:
+                item["tag"] = f"{prefix}-notag{prefix_counters[prefix]}"
+            
+            prefix_counters[prefix] += 1
+    
     return items
 
 
