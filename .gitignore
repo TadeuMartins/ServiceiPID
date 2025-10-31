@@ -30,6 +30,11 @@ Thumbs.db
 # Project specific
 *.pkl
 ref_embeddings.pkl
+ref_embeddings_pid.pkl
+ref_embeddings_electrical.pkl
+
+# Test files
+test_diagram_type.py
 
 # Temporary files
 *.tmp
