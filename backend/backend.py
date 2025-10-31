@@ -542,13 +542,10 @@ def page_quadrants_with_overlap(page: fitz.Page, grid_x: int = 3, grid_y: int = 
     Returns:
         List of (gx, gy, rect, label) tuples
     """
-    # Use page.rect directly (respects rotation metadata)
+    # Use actual page dimensions without swapping
+    # The LLM sees the actual page orientation, so we must respect it
     rect = page.rect
     W, H = rect.width, rect.height
-    
-    # Handle landscape/portrait orientation
-    if H > W:
-        W, H = H, W
     
     quads = []
     
@@ -1467,12 +1464,12 @@ async def analyze_pdf(
         page_num = page_idx + 1
         log_to_front(f"\n===== Página {page_num} =====")
 
+        # Use actual page dimensions without swapping
+        # The LLM sees the actual page orientation, so dimensions must match
         W_pts, H_pts = page.rect.width, page.rect.height
         W_mm, H_mm = points_to_mm(W_pts), points_to_mm(H_pts)
-        if H_mm > W_mm:
-            W_mm, H_mm = H_mm, W_mm
 
-        log_to_front(f"Dimensões normalizadas (mm): X={W_mm}, Y={H_mm}")
+        log_to_front(f"Dimensões da página (mm): X={W_mm}, Y={H_mm}")
 
         global_list: List[Dict[str, Any]] = []
         quad_items: List[Dict[str, Any]] = []
