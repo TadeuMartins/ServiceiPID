@@ -75,7 +75,7 @@ def _initialize_pid():
     ref_texts_pid = (df_ref_pid["Type"].fillna("") + " " + df_ref_pid["Descricao"].fillna("")).tolist()
     
     # Validate that we have non-empty texts
-    valid_texts = [stripped for text in ref_texts_pid if (stripped := text.strip())]
+    valid_texts = [stripped_text for text in ref_texts_pid if (stripped_text := text.strip())]
     if not valid_texts:
         raise ValueError(f"Planilha P&ID ({REF_PATH_PID}) não contém textos válidos para criar embeddings")
     
@@ -110,7 +110,7 @@ def _initialize_electrical():
     ref_texts_electrical = (df_ref_electrical["Type"].fillna("") + " " + df_ref_electrical["Descricao"].fillna("")).tolist()
     
     # Validate that we have non-empty texts
-    valid_texts = [stripped for text in ref_texts_electrical if (stripped := text.strip())]
+    valid_texts = [stripped_text for text in ref_texts_electrical if (stripped_text := text.strip())]
     if not valid_texts:
         raise ValueError(f"Planilha Electrical ({REF_PATH_ELECTRICAL}) não contém textos válidos para criar embeddings")
     
@@ -199,11 +199,13 @@ def embed_texts(texts):
     
     # Batch the requests to avoid API limits (max 2048 inputs per request)
     batch_size = 2000  # Conservative batch size
+    total_batches = (len(valid_texts) + batch_size - 1) // batch_size
     all_embeddings = []
     
     for i in range(0, len(valid_texts), batch_size):
         batch = valid_texts[i:i + batch_size]
-        print(f"🔄 Criando embeddings para batch {i//batch_size + 1}/{(len(valid_texts) + batch_size - 1)//batch_size} ({len(batch)} textos)...")
+        batch_num = i // batch_size + 1
+        print(f"🔄 Criando embeddings para batch {batch_num}/{total_batches} ({len(batch)} textos)...")
         
         try:
             resp = client.embeddings.create(
@@ -213,7 +215,7 @@ def embed_texts(texts):
             batch_embeddings = [d.embedding for d in resp.data]
             all_embeddings.extend(batch_embeddings)
         except Exception as e:
-            print(f"❌ Erro ao criar embeddings para batch {i//batch_size + 1}: {e}")
+            print(f"❌ Erro ao criar embeddings para batch {batch_num}: {e}")
             raise
     
     return all_embeddings
