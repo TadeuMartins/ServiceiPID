@@ -74,6 +74,11 @@ def _initialize_pid():
     # Carrega cache se existir, senão gera e salva
     ref_texts_pid = (df_ref_pid["Type"].fillna("") + " " + df_ref_pid["Descricao"].fillna("")).tolist()
     
+    # Validate that we have non-empty texts
+    valid_texts = [stripped_text for text in ref_texts_pid if (stripped_text := text.strip())]
+    if not valid_texts:
+        raise ValueError(f"Planilha P&ID ({REF_PATH_PID}) não contém textos válidos para criar embeddings")
+    
     if os.path.exists(CACHE_FILE_PID):
         with open(CACHE_FILE_PID, "rb") as f:
             ref_embeddings_pid = pickle.load(f)
@@ -104,6 +109,11 @@ def _initialize_electrical():
     # Carrega cache se existir, senão gera e salva
     ref_texts_electrical = (df_ref_electrical["Type"].fillna("") + " " + df_ref_electrical["Descricao"].fillna("")).tolist()
     
+    # Validate that we have non-empty texts
+    valid_texts = [stripped_text for text in ref_texts_electrical if (stripped_text := text.strip())]
+    if not valid_texts:
+        raise ValueError(f"Planilha Electrical ({REF_PATH_ELECTRICAL}) não contém textos válidos para criar embeddings")
+    
     if os.path.exists(CACHE_FILE_ELECTRICAL):
         with open(CACHE_FILE_ELECTRICAL, "rb") as f:
             ref_embeddings_electrical = pickle.load(f)
@@ -128,31 +138,87 @@ def ensure_embeddings_exist():
         # Check and initialize P&ID embeddings
         if not os.path.exists(CACHE_FILE_PID):
             print(f"⚠️  Cache de embeddings P&ID não encontrado. Criando...")
-            _initialize_pid()
+            try:
+                _initialize_pid()
+            except Exception as e:
+                print(f"❌ Erro ao criar embeddings P&ID: {e}, por favor verifique.")
+                raise
         else:
             print(f"✅ Cache de embeddings P&ID encontrado: {CACHE_FILE_PID}")
         
         # Check and initialize Electrical embeddings
         if not os.path.exists(CACHE_FILE_ELECTRICAL):
             print(f"⚠️  Cache de embeddings Electrical não encontrado. Criando...")
-            _initialize_electrical()
+            try:
+                _initialize_electrical()
+            except Exception as e:
+                print(f"❌ Erro ao criar embeddings Electrical: {e}, por favor verifique.")
+                raise
         else:
             print(f"✅ Cache de embeddings Electrical encontrado: {CACHE_FILE_ELECTRICAL}")
         
         print("✅ Verificação de embeddings concluída")
         return True
     except Exception as e:
-        print(f"❌ Erro ao verificar embeddings: {e}")
+        print(f"❌ Erro ao verificar embeddings: {e}, por favor verifique.")
         return False
 
 # Função para criar embeddings
 def embed_texts(texts):
+    """
+    Create embeddings for a list of texts.
+    
+    Args:
+        texts: List of strings to embed
+        
+    Returns:
+        List of embeddings (list of floats)
+        
+    Raises:
+        ValueError: If texts is empty or contains only empty strings
+    """
     _initialize_client()
-    resp = client.embeddings.create(
-        model="text-embedding-3-small",
-        input=texts
-    )
-    return [d.embedding for d in resp.data]
+    
+    # Validate input
+    if not texts:
+        raise ValueError("Cannot create embeddings for empty text list")
+    
+    # Convert to strings and filter out empty entries
+    valid_texts = []
+    for text in texts:
+        text_str = str(text).strip()
+        if text_str:
+            valid_texts.append(text_str)
+    
+    if not valid_texts:
+        raise ValueError("Cannot create embeddings: all texts are empty after filtering")
+    
+    # Log if we filtered out some texts
+    if len(valid_texts) != len(texts):
+        print(f"⚠️  Filtered {len(texts) - len(valid_texts)} empty texts from embedding input")
+    
+    # Batch the requests to avoid API limits (max 2048 inputs per request)
+    batch_size = 2000  # Conservative batch size
+    total_batches = (len(valid_texts) + batch_size - 1) // batch_size
+    all_embeddings = []
+    
+    for i in range(0, len(valid_texts), batch_size):
+        batch = valid_texts[i:i + batch_size]
+        batch_num = i // batch_size + 1
+        print(f"🔄 Criando embeddings para batch {batch_num}/{total_batches} ({len(batch)} textos)...")
+        
+        try:
+            resp = client.embeddings.create(
+                model="text-embedding-3-small",
+                input=batch
+            )
+            batch_embeddings = [d.embedding for d in resp.data]
+            all_embeddings.extend(batch_embeddings)
+        except Exception as e:
+            print(f"❌ Erro ao criar embeddings para batch {batch_num}: {e}")
+            raise
+    
+    return all_embeddings
 
 # --- Similaridade ---
 def cosine_similarity(a, b):
