@@ -1815,7 +1815,10 @@ COMPLETENESS AND DETAIL:
 - Include safety elements: PSVs, alarms, interlocks
 - Add redundant instrumentation where critical
 - Consider necessary utilities (steam, water, air, etc.)
-
+"""
+    
+    # Common OUTPUT FORMAT section for both diagram types
+    prompt += """
 
 OUTPUT FORMAT - CRITICAL:
 
