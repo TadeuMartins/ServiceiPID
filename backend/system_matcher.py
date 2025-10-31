@@ -113,6 +113,35 @@ def _initialize_electrical():
     
     ref_embeddings_electrical = np.array(ref_embeddings_electrical)
 
+
+def ensure_embeddings_exist():
+    """
+    Ensure embeddings exist for both P&ID and Electrical diagrams.
+    Called on backend startup to initialize embeddings if they don't exist.
+    """
+    try:
+        print("🔍 Verificando embeddings...")
+        
+        # Check and initialize P&ID embeddings
+        if not os.path.exists(CACHE_FILE_PID):
+            print(f"⚠️  Cache de embeddings P&ID não encontrado. Criando...")
+            _initialize_pid()
+        else:
+            print(f"✅ Cache de embeddings P&ID encontrado: {CACHE_FILE_PID}")
+        
+        # Check and initialize Electrical embeddings
+        if not os.path.exists(CACHE_FILE_ELECTRICAL):
+            print(f"⚠️  Cache de embeddings Electrical não encontrado. Criando...")
+            _initialize_electrical()
+        else:
+            print(f"✅ Cache de embeddings Electrical encontrado: {CACHE_FILE_ELECTRICAL}")
+        
+        print("✅ Verificação de embeddings concluída")
+        return True
+    except Exception as e:
+        print(f"❌ Erro ao verificar embeddings: {e}")
+        return False
+
 # Função para criar embeddings
 def embed_texts(texts):
     _initialize_client()

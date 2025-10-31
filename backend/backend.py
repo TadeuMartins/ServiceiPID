@@ -29,7 +29,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 from openai import OpenAI
-from system_matcher import match_system_fullname
+from system_matcher import match_system_fullname, ensure_embeddings_exist
 
 # Load environment variables from .env file
 load_dotenv()
@@ -113,6 +113,11 @@ async def startup_event():
     if not OPENAI_API_KEY:
         log_to_front("❌ OPENAI_API_KEY não definido. Configure a chave no arquivo .env")
         return
+    
+    # Check and ensure embeddings exist
+    log_to_front("🔍 Verificando embeddings...")
+    ensure_embeddings_exist()
+    
     try:
         models = client.models.list()
         ids = [m.id for m in models.data]
@@ -960,14 +965,28 @@ def refine_geometric_center(page: fitz.Page, item: Dict[str, Any],
 # ============================================================
 # PROMPT BUILDER
 # ============================================================
-def build_prompt(width_mm: float, height_mm: float, scope: str = "global", origin=(0, 0), quad_label: str = "") -> str:
+def build_prompt(width_mm: float, height_mm: float, scope: str = "global", origin=(0, 0), quad_label: str = "", diagram_type: str = "pid") -> str:
     if height_mm > width_mm:
         width_mm, height_mm = height_mm, width_mm
 
-    base = f"""
-Você é um engenheiro especialista em diagramas P&ID (Piping and Instrumentation Diagram) e símbolos ISA S5.1/S5.2/S5.3.
+    # Determine the type of diagram we're analyzing
+    is_electrical = diagram_type.lower() == "electrical"
+    
+    if is_electrical:
+        diagram_name = "Diagrama Elétrico (Electrical Diagram)"
+        diagram_description = "diagramas elétricos (Electrical Diagrams) e símbolos elétricos padrão"
+        analysis_type = "ANÁLISE DE DIAGRAMA ELÉTRICO - ESPECIFICAÇÕES TÉCNICAS:"
+        objective = "Extrair TODOS os elementos do diagrama elétrico com máxima precisão técnica."
+    else:
+        diagram_name = "P&ID (Piping and Instrumentation Diagram)"
+        diagram_description = "diagramas P&ID (Piping and Instrumentation Diagram) e símbolos ISA S5.1/S5.2/S5.3"
+        analysis_type = "ANÁLISE DE FLUXOGRAMA DE PROCESSO - ESPECIFICAÇÕES TÉCNICAS:"
+        objective = "Extrair TODOS os elementos do fluxograma de processo com máxima precisão técnica."
 
-ANÁLISE DE FLUXOGRAMA DE PROCESSO - ESPECIFICAÇÕES TÉCNICAS:"""
+    base = f"""
+Você é um engenheiro especialista em {diagram_description}.
+
+{analysis_type}"""
     
     if scope == "global":
         base += f"""
@@ -993,9 +1012,56 @@ ANÁLISE DE FLUXOGRAMA DE PROCESSO - ESPECIFICAÇÕES TÉCNICAS:"""
 """
     
     base += f"""
-OBJETIVO: Extrair TODOS os elementos do fluxograma de processo com máxima precisão técnica.
+OBJETIVO: {objective}
 
-EQUIPAMENTOS A IDENTIFICAR (lista não exaustiva):
+EQUIPAMENTOS A IDENTIFICAR (lista não exaustiva):"""
+
+    if is_electrical:
+        base += """
+1. Componentes elétricos principais:
+   - Transformadores (power transformers, distribution transformers): TR-XXX, T-XXX
+   - Motores elétricos (AC/DC motors, synchronous/asynchronous): M-XXX, MOT-XXX
+   - Geradores: G-XXX, GEN-XXX
+   - Painéis elétricos (switchboards, MCCs): PNL-XXX, MCC-XXX
+   - Disjuntores (circuit breakers): CB-XXX, DJ-XXX
+   - Fusíveis: F-XXX, FUS-XXX
+   - Chaves seccionadoras (disconnectors): DS-XXX, SEC-XXX
+   - Relés de proteção: REL-XXX, PROT-XXX
+   - Contatores: C-XXX, K-XXX
+   - Barramentos (busbars): BB-XXX, BUS-XXX
+
+2. Dispositivos de proteção e controle:
+   - Relés de sobrecorrente: 50/51
+   - Relés de proteção diferencial: 87
+   - Relés de subtensão/sobretensão: 27/59
+   - Relés de frequência: 81
+   - Dispositivos de proteção contra surtos: SPD, DPS
+   - Sistemas de aterramento: GND, PE
+
+3. Instrumentação elétrica:
+   - Medidores de energia (energy meters): EM-XXX
+   - Amperímetros: A-XXX
+   - Voltímetros: V-XXX
+   - Wattímetros: W-XXX
+   - Indicadores de fator de potência: PF-XXX
+   - Transdutores de corrente (CTs): CT-XXX
+   - Transdutores de potencial (VTs/PTs): VT-XXX, PT-XXX
+
+4. Cabos e conexões:
+   - Linhas de potência (power lines)
+   - Cabos de controle
+   - Conexões e terminais
+   - Eletrodutos e bandejas
+
+5. Outros elementos:
+   - Sistemas de backup/UPS
+   - Baterias
+   - Inversores e conversores
+   - Soft-starters e drives de velocidade variável (VFDs)
+   - Capacitores para correção de fator de potência
+"""
+    else:
+        base += """
 1. Equipamentos principais:
    - Bombas (centrífugas, alternativas, de vácuo): P-XXX
    - Tanques (armazenamento, pulmão, surge): T-XXX, TK-XXX
@@ -1223,7 +1289,7 @@ def llm_call(image_b64: str, prompt: str, prefer_model: str = PRIMARY_MODEL):
 # ============================================================
 # PROCESSAMENTO QUADRANTE
 # ============================================================
-async def process_quadrant(gx, gy, rect, page, W_mm, H_mm, dpi):
+async def process_quadrant(gx, gy, rect, page, W_mm, H_mm, dpi, diagram_type="pid"):
     label = f"{gy+1}-{gx+1}"
     ox, oy = points_to_mm(rect.x0), points_to_mm(rect.y0)
     rect_w_mm, rect_h_mm = points_to_mm(rect.width), points_to_mm(rect.height)
@@ -1238,7 +1304,7 @@ async def process_quadrant(gx, gy, rect, page, W_mm, H_mm, dpi):
         
         quad_b64 = base64.b64encode(quad_png).decode("utf-8")
         # Passa as dimensões CORRETAS do quadrante (não da página completa)
-        prompt_q = build_prompt(rect_w_mm, rect_h_mm, "quadrant", (ox, oy), label)
+        prompt_q = build_prompt(rect_w_mm, rect_h_mm, "quadrant", (ox, oy), label, diagram_type)
         model_used, resp_q = await asyncio.to_thread(llm_call, quad_b64, prompt_q)
         raw_q = resp_q.choices[0].message.content if resp_q and resp_q.choices else ""
         log_to_front(f"   🔍 RAW QUADRANT {label}: {raw_q[:500]}")
@@ -1310,7 +1376,7 @@ async def analyze_pdf(
         try:
             page_png = page.get_pixmap(dpi=dpi).tobytes("png")
             page_b64 = base64.b64encode(page_png).decode("utf-8")
-            prompt_global = build_prompt(W_mm, H_mm, "global")
+            prompt_global = build_prompt(W_mm, H_mm, "global", diagram_type=diagram_type)
             model_used, resp = llm_call(page_b64, prompt_global)
             raw = resp.choices[0].message.content if resp and resp.choices else ""
             log_to_front(f"🌐 RAW GLOBAL OUTPUT (page {page_num}): {raw[:500]}")
@@ -1326,10 +1392,10 @@ async def analyze_pdf(
             if use_overlap:
                 log_to_front(f"📊 Gerando quadrantes com sobreposição de 50%...")
                 quads_with_labels = page_quadrants_with_overlap(page, grid_x=grid, grid_y=grid, overlap_percent=0.5)
-                tasks = [process_quadrant(gx, gy, rect, page, W_mm, H_mm, dpi) for gx, gy, rect, label in quads_with_labels]
+                tasks = [process_quadrant(gx, gy, rect, page, W_mm, H_mm, dpi, diagram_type) for gx, gy, rect, label in quads_with_labels]
             else:
                 quads = page_quadrants(page, grid_x=grid, grid_y=grid)
-                tasks = [process_quadrant(gx, gy, rect, page, W_mm, H_mm, dpi) for gx, gy, rect in quads]
+                tasks = [process_quadrant(gx, gy, rect, page, W_mm, H_mm, dpi, diagram_type) for gx, gy, rect in quads]
             
             results = await asyncio.gather(*tasks)
             for r in results:
@@ -1519,28 +1585,100 @@ async def analyze_pdf(
 # ============================================================
 # GERAÇÃO DE P&ID A PARTIR DE PROMPT
 # ============================================================
-def build_generation_prompt(process_description: str, width_mm: float = 1189.0, height_mm: float = 841.0) -> str:
+def build_generation_prompt(process_description: str, width_mm: float = 1189.0, height_mm: float = 841.0, diagram_type: str = "pid") -> str:
     """
-    Constrói prompt técnico e detalhado para gerar P&ID completo a partir de descrição do processo.
+    Constrói prompt técnico e detalhado para gerar P&ID ou diagrama elétrico a partir de descrição do processo.
     A0 sheet dimensions: 1189mm x 841mm (landscape)
     """
+    
+    is_electrical = diagram_type.lower() == "electrical"
+    
+    if is_electrical:
+        diagram_name = "Electrical Diagram (Diagrama Elétrico)"
+        standards = "electrical standards and symbols"
+        task_description = "electrical diagram"
+        concepts = "electrical diagram concepts and standard electrical symbols"
+    else:
+        diagram_name = "P&ID (Piping and Instrumentation Diagram)"
+        standards = "ISA S5.1, S5.2, S5.3 standards and process engineering best practices"
+        task_description = "P&ID"
+        concepts = "P&ID concepts and ISA standards"
+    
     prompt = f"""
-You are an educational tool that helps demonstrate P&ID (Piping and Instrumentation Diagram) concepts 
-following ISA S5.1, S5.2, S5.3 standards and process engineering best practices.
+You are an educational tool that helps demonstrate {diagram_name} 
+following {standards}.
 
-TASK: Generate a representative P&ID example for educational purposes based on this process description:
+TASK: Generate a representative {task_description} example for educational purposes based on this process description:
 "{process_description}"
 
-NOTE: This is for educational demonstration and learning purposes only, to illustrate P&ID concepts and ISA standards.
+NOTE: This is for educational demonstration and learning purposes only, to illustrate {concepts}.
+
+CRITICAL: You MUST generate a {diagram_name.upper()}, NOT any other type of diagram. 
+Focus exclusively on {"electrical components, connections, and power distribution" if is_electrical else "process equipment, piping, and instrumentation"}.
 
 TECHNICAL SPECIFICATIONS:
 - Sheet: A0 landscape format
 - Dimensions: {width_mm} mm (width/X) x {height_mm} mm (height/Y)
 - Coordinate system: X increases left to right, Y increases top to bottom
 - Origin: Top left corner is point (0, 0)
-- Layout: Process flow from left (inlet) to right (outlet)
+- Layout: {"Power flow from source (left) to loads (right)" if is_electrical else "Process flow from left (inlet) to right (outlet)"}
 - Compatibility: COMOS (Siemens) - absolute coordinates
+"""
+    
+    if is_electrical:
+        prompt += """
+TYPICAL ELECTRICAL DIAGRAM ELEMENTS - MAIN COMPONENTS:
 
+1. ELECTRICAL EQUIPMENT (include as applicable):
+   - Transformers: TR-101, T-101, etc. (power, distribution)
+     * Typical specs: kVA rating, voltage ratios, connection type
+   - Motors: M-101, M-102, MOT-101 (AC/DC, synchronous/asynchronous)
+     * Typical specs: power rating, voltage, speed
+   - Generators: G-101, GEN-101
+     * Typical items: voltage regulation, frequency control
+   - Switchboards/MCCs: PNL-101, MCC-101
+     * Typical components: circuit breakers, meters, indicators
+   - Circuit Breakers: CB-101, DJ-101
+     * Protection ratings and trip characteristics
+   - Disconnectors/Switches: DS-101, SEC-101
+     * Isolation and switching functions
+   - Contactors: C-101, K-101
+     * Control and switching applications
+   - Protection Relays: REL-101, PROT-101
+     * Types: overcurrent (50/51), differential (87), undervoltage (27), overvoltage (59)
+
+2. ELECTRICAL INSTRUMENTATION AND METERS:
+   - Energy meters: EM-101
+   - Ammeters: A-101
+   - Voltmeters: V-101
+   - Wattmeters: W-101
+   - Power factor indicators: PF-101
+   - Current transformers: CT-101
+   - Voltage transformers: VT-101, PT-101
+
+3. POWER DISTRIBUTION AND CONNECTIONS:
+   - Busbars: BB-101, BUS-101
+   - Power cables and lines
+   - Control wiring
+   - Grounding systems: GND, PE
+   - Cable trays and conduits
+
+4. PROTECTION AND CONTROL:
+   - Surge protection devices: SPD-101, DPS-101
+   - Fuses: F-101, FUS-101
+   - Emergency stop systems
+   - Interlocking schemes
+   - Backup power systems (UPS, batteries)
+
+5. VARIABLE SPEED DRIVES AND POWER ELECTRONICS:
+   - VFDs (Variable Frequency Drives): VFD-101
+   - Soft-starters: SS-101
+   - Inverters/Converters: INV-101, CONV-101
+   - Power factor correction capacitors: CAP-101
+"""
+    else:
+        # Original P&ID equipment list
+        prompt += """
 TYPICAL P&ID ELEMENTS - MAIN EQUIPMENT:
 
 1. PROCESS EQUIPMENT (include as applicable):
@@ -1760,7 +1898,7 @@ async def generate_pid(
     
     try:
         # Gera o prompt de geração
-        generation_prompt = build_generation_prompt(prompt, W_mm, H_mm)
+        generation_prompt = build_generation_prompt(prompt, W_mm, H_mm, diagram_type)
         
         # Chama LLM sem imagem (apenas texto)
         log_to_front("🤖 Chamando LLM para gerar equipamentos...")
