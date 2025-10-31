@@ -1,5 +1,6 @@
 #!/bin/bash
 # Run all coordinate-related tests to validate the fixes
+set -e  # Exit on any command failure
 
 echo "=========================================================================="
 echo "RUNNING ALL COORDINATE PRECISION TESTS"
