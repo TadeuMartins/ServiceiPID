@@ -75,7 +75,7 @@ def _initialize_pid():
     ref_texts_pid = (df_ref_pid["Type"].fillna("") + " " + df_ref_pid["Descricao"].fillna("")).tolist()
     
     # Validate that we have non-empty texts
-    valid_texts = [text.strip() for text in ref_texts_pid if text.strip()]
+    valid_texts = [stripped for text in ref_texts_pid if (stripped := text.strip())]
     if not valid_texts:
         raise ValueError(f"Planilha P&ID ({REF_PATH_PID}) não contém textos válidos para criar embeddings")
     
@@ -110,7 +110,7 @@ def _initialize_electrical():
     ref_texts_electrical = (df_ref_electrical["Type"].fillna("") + " " + df_ref_electrical["Descricao"].fillna("")).tolist()
     
     # Validate that we have non-empty texts
-    valid_texts = [text.strip() for text in ref_texts_electrical if text.strip()]
+    valid_texts = [stripped for text in ref_texts_electrical if (stripped := text.strip())]
     if not valid_texts:
         raise ValueError(f"Planilha Electrical ({REF_PATH_ELECTRICAL}) não contém textos válidos para criar embeddings")
     
