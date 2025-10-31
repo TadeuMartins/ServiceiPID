@@ -1608,6 +1608,10 @@ def build_generation_prompt(process_description: str, width_mm: float = 1189.0, 
 You are an educational tool that helps demonstrate {diagram_name} 
 following {standards}.
 
+CRITICAL OUTPUT REQUIREMENT:
+You MUST respond with ONLY a valid JSON array. NO additional text, explanations, markdown, or descriptions.
+Start your response directly with '[' and end with ']'. Do NOT include any text before or after the JSON.
+
 TASK: Generate a representative {task_description} example for educational purposes based on this process description:
 "{process_description}"
 
@@ -1813,12 +1817,84 @@ COMPLETENESS AND DETAIL:
 - Consider necessary utilities (steam, water, air, etc.)
 
 
-OUTPUT FORMAT (JSON):
+OUTPUT FORMAT - CRITICAL:
+
+YOU MUST RESPOND WITH ONLY A JSON ARRAY. NO MARKDOWN, NO EXPLANATIONS, NO ADDITIONAL TEXT.
+Your entire response must be ONLY the JSON array starting with '[' and ending with ']'.
 
 COORDINATE PRECISION REQUIREMENTS:
 - All x_mm and y_mm values MUST have decimal precision (0.1 mm)
 - Use format: 150.5, 234.8, 567.3 (NOT 150, 234, 567)
 - Coordinates reference the EXACT geometric center of symbols
+"""
+    
+    # Add diagram-type-specific examples
+    if is_electrical:
+        prompt += """
+EXAMPLE OUTPUT FOR ELECTRICAL DIAGRAM (Star-Delta Starter):
+
+[
+  {
+    "tag": "CB-101",
+    "descricao": "Main Circuit Breaker",
+    "x_mm": 150.5,
+    "y_mm": 400.0,
+    "from": "N/A",
+    "to": "C-101"
+  },
+  {
+    "tag": "C-101",
+    "descricao": "Main Contactor",
+    "x_mm": 250.5,
+    "y_mm": 400.0,
+    "from": "CB-101",
+    "to": "C-102"
+  },
+  {
+    "tag": "C-102",
+    "descricao": "Star Contactor",
+    "x_mm": 350.5,
+    "y_mm": 350.0,
+    "from": "C-101",
+    "to": "M-101"
+  },
+  {
+    "tag": "C-103",
+    "descricao": "Delta Contactor",
+    "x_mm": 350.5,
+    "y_mm": 450.0,
+    "from": "C-101",
+    "to": "M-101"
+  },
+  {
+    "tag": "M-101",
+    "descricao": "Three-Phase Motor",
+    "x_mm": 500.5,
+    "y_mm": 400.0,
+    "from": "C-102",
+    "to": "N/A"
+  },
+  {
+    "tag": "REL-101",
+    "descricao": "Overload Relay",
+    "x_mm": 420.5,
+    "y_mm": 400.0,
+    "from": "C-101",
+    "to": "M-101"
+  },
+  {
+    "tag": "A-101",
+    "descricao": "Ammeter",
+    "x_mm": 300.5,
+    "y_mm": 300.0,
+    "from": "C-101",
+    "to": "N/A"
+  }
+]
+"""
+    else:
+        prompt += """
+EXAMPLE OUTPUT FOR P&ID:
 
 [
   {{
@@ -1862,16 +1938,20 @@ COORDINATE PRECISION REQUIREMENTS:
     "to": "N/A"
   }}
 ]
-
-IMPORTANT:
-- Return ONLY the JSON array, without additional text, markdown, or explanations
+"""
+    
+    prompt += f"""
+CRITICAL REMINDERS:
+- Return ONLY the JSON array shown above, no other text
+- NO explanations, NO markdown formatting (no ```json), NO introductory text
+- Start directly with '[' and end with ']'
 - Coordinates must be within limits: X: 0-{width_mm}, Y: 0-{height_mm}
 - Coordinates MUST use decimal precision (e.g., 150.5, NOT 150)
 - Coordinates must reference the CENTER of equipment and instruments (not piping)
-- This is an educational example to demonstrate P&ID concepts and ISA standards
-- Include ALL typical essential elements: equipment, instrumentation, valves, controls
+- This is an educational example to demonstrate {"electrical diagram concepts" if is_electrical else "P&ID concepts and ISA standards"}
+- Include ALL typical essential elements: equipment, instrumentation, {"protection devices, controls" if is_electrical else "valves, controls"}
 - Use engineering best practices: redundancy in critical systems, adequate instrumentation
-- Strictly follow ISA S5.1 standards for nomenclature
+{"- Use standard electrical nomenclature for tags" if is_electrical else "- Strictly follow ISA S5.1 standards for nomenclature"}
 """
     return prompt.strip()
 
