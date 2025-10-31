@@ -75,7 +75,7 @@ def _initialize_pid():
     ref_texts_pid = (df_ref_pid["Type"].fillna("") + " " + df_ref_pid["Descricao"].fillna("")).tolist()
     
     # Validate that we have non-empty texts
-    valid_texts = [text.strip() for text in ref_texts_pid if text and text.strip()]
+    valid_texts = [text.strip() for text in ref_texts_pid if text.strip()]
     if not valid_texts:
         raise ValueError(f"Planilha P&ID ({REF_PATH_PID}) não contém textos válidos para criar embeddings")
     
@@ -110,7 +110,7 @@ def _initialize_electrical():
     ref_texts_electrical = (df_ref_electrical["Type"].fillna("") + " " + df_ref_electrical["Descricao"].fillna("")).tolist()
     
     # Validate that we have non-empty texts
-    valid_texts = [text.strip() for text in ref_texts_electrical if text and text.strip()]
+    valid_texts = [text.strip() for text in ref_texts_electrical if text.strip()]
     if not valid_texts:
         raise ValueError(f"Planilha Electrical ({REF_PATH_ELECTRICAL}) não contém textos válidos para criar embeddings")
     
@@ -183,13 +183,17 @@ def embed_texts(texts):
     if not texts:
         raise ValueError("Cannot create embeddings for empty text list")
     
-    # Filter out empty strings and ensure all items are strings
-    valid_texts = [str(text).strip() for text in texts if text and str(text).strip()]
+    # Convert to strings and filter out empty entries
+    valid_texts = []
+    for text in texts:
+        text_str = str(text).strip()
+        if text_str:
+            valid_texts.append(text_str)
     
     if not valid_texts:
         raise ValueError("Cannot create embeddings: all texts are empty after filtering")
     
-    # If we filtered out some texts, we need to track indices to return the right number of embeddings
+    # Log if we filtered out some texts
     if len(valid_texts) != len(texts):
         print(f"⚠️  Filtered {len(texts) - len(valid_texts)} empty texts from embedding input")
     
