@@ -24,7 +24,6 @@ def test_electrical_analysis_prompt():
     electrical_checks = [
         ("diagramas elétricos (Electrical Diagrams)", "Electrical diagram specialist role mentioned"),
         ("ANÁLISE DE DIAGRAMA ELÉTRICO", "Electrical analysis type header"),
-        ("ANÁLISE DE DIAGRAMA ELÉTRICO", "Electrical analysis type header"),
         ("Transformadores", "Transformers in equipment list"),
         ("Motores elétricos", "Electrical motors in equipment list"),
         ("Disjuntores", "Circuit breakers in equipment list"),
