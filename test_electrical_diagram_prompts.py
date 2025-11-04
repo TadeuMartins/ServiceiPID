@@ -22,8 +22,8 @@ def test_electrical_analysis_prompt():
     
     # Check for electrical-specific content
     electrical_checks = [
-        ("diagramas elétricos (Electrical Diagrams)", "Electrical diagram type mentioned"),
-        ("diagramas elétricos (Electrical Diagrams)", "Electrical diagrams description"),
+        ("diagramas elétricos (Electrical Diagrams)", "Electrical diagram specialist role mentioned"),
+        ("ANÁLISE DE DIAGRAMA ELÉTRICO", "Electrical analysis type header"),
         ("ANÁLISE DE DIAGRAMA ELÉTRICO", "Electrical analysis type header"),
         ("Transformadores", "Transformers in equipment list"),
         ("Motores elétricos", "Electrical motors in equipment list"),
