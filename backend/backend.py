@@ -1243,7 +1243,73 @@ REGRAS CRÍTICAS PARA EXTRAÇÃO:
    - Cruze informações visuais para validar: "from" e "to" devem estar espacialmente coerentes
    - VALIDAÇÃO FINAL: Mentalmente sobreponha as coordenadas na imagem - devem coincidir perfeitamente
    - Se houver dúvida, refaça a medição com mais atenção aos limites do símbolo
+"""
+    
+    # Add diagram-type-specific sections
+    if is_electrical:
+        base += """
+3. TAGS E IDENTIFICAÇÃO:
+   - Capture TAGs completas mesmo se prefixo e número estiverem separados visualmente
+   - Exemplos elétricos: "CB-101", "M-201", "TR-301", "REL-401", "CT-101"
+   - Se não houver TAG visível, use "tag": "N/A" mas capture o componente
+   - Inclua sufixos importantes: A/B (redundância), -1/-2 (numeração)
 
+4. DESCRIÇÕES (nomenclatura elétrica):
+   - Use terminologia técnica precisa para componentes elétricos
+   - Exemplos: "Disjuntor Principal", "Motor Trifásico", "Transformador de Potência", "Relé de Sobrecorrente"
+   - Especifique tipo quando visível: "Disjuntor a Vácuo", "Motor AC Assíncrono", "Transformador Abaixador"
+
+5. CONEXÕES ELÉTRICAS (from/to):
+   - Identifique fluxo de potência ou controle: componente de origem → componente de destino
+   - Use TAGs dos componentes conectados
+   - Se não houver conexão clara, use "N/A"
+   - Exemplo: "from": "CB-101", "to": "M-201"
+   - VALIDAÇÃO: As coordenadas dos componentes em "from" e "to" devem estar próximas aos cabos/linhas que os conectam
+
+6. COMPLETUDE:
+   - Extraia TODOS os símbolos elétricos visíveis, mesmo sem TAG
+   - Não omita instrumentos de medição, proteção ou controle
+   - Capture disjuntores, fusíveis, chaves, relés, medidores
+   - Inclua símbolos parcialmente visíveis (estimando coordenadas do centro)
+
+FORMATO DE SAÍDA (JSON OBRIGATÓRIO):
+
+IMPORTANTE SOBRE COORDENADAS:
+- x_mm e y_mm devem ser números com precisão de 0.1 mm (uma casa decimal)
+- Use valores como 234.5, 567.8, 1045.3 (NÃO arredonde para inteiros)
+- Garanta que as coordenadas referenciam o centro geométrico exato do símbolo
+- Exemplo: Para um motor centralizado em (234.5, 567.8), NÃO use (234, 567) ou (235, 568)
+
+[
+  {{
+    "tag": "CB-101",
+    "descricao": "Disjuntor Principal",
+    "x_mm": 234.5,
+    "y_mm": 567.8,
+    "from": "TR-101",
+    "to": "M-201"
+  }},
+  {{
+    "tag": "M-201",
+    "descricao": "Motor Trifásico",
+    "x_mm": 445.2,
+    "y_mm": 555.3,
+    "from": "CB-101",
+    "to": "N/A"
+  }},
+  {{
+    "tag": "CT-101",
+    "descricao": "Transformador de Corrente",
+    "x_mm": 320.8,
+    "y_mm": 570.0,
+    "from": "CB-101",
+    "to": "A-101"
+  }}
+]
+
+RETORNE SOMENTE O ARRAY JSON. Não inclua texto adicional, markdown ou explicações."""
+    else:
+        base += """
 3. TAGS E IDENTIFICAÇÃO:
    - Capture TAGs completas mesmo se prefixo e número estiverem separados visualmente
    - Exemplos: "PI 9039", "LT 101", "FV-2001", "P 101 A/B"
