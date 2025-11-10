@@ -277,6 +277,39 @@ Lista todos os P&IDs armazenados na base de conhecimento.
 
 ## Solução de Problemas
 
+### Erro MuPDF ExtGState (PDF Corrompido)
+
+**NOVO!** 🎉 O sistema agora tem **fallback automático** para PDFs corrompidos.
+
+**Problema:** Você recebe o erro:
+```
+MuPDF error: syntax error: cannot find ExtGState resource 'R7'
+```
+
+**O que acontece agora:**
+1. ✅ Sistema detecta automaticamente o erro
+2. 🔄 Tenta abrir PDF com biblioteca alternativa (pdf2image/Poppler)
+3. ✅ **Análise funciona normalmente** mesmo com PDF corrompido!
+
+**Sistema de Fallback em 3 Níveis:**
+- **PyMuPDF** (padrão - mais rápido)
+- **pdf2image** (fallback - MUITO mais tolerante a erros) ⭐
+- **pypdf** (último recurso - apenas metadados)
+
+**Se o sistema ainda falhar após todas as tentativas:**
+
+O PDF está muito corrompido. Soluções:
+1. Abra o PDF em Adobe Reader e salve nova cópia: `Arquivo → Salvar Como`
+2. Use ferramenta online: https://www.ilovepdf.com/pt/reparar-pdf
+3. Recrie o PDF a partir do documento original
+
+**Documentação completa:** Veja [PDF_FALLBACK_SYSTEM.md](PDF_FALLBACK_SYSTEM.md) para detalhes técnicos.
+
+**Nota:** pdf2image requer Poppler instalado no sistema:
+- **Linux:** `sudo apt-get install poppler-utils`
+- **macOS:** `brew install poppler`
+- **Windows:** Baixe de https://github.com/oschwartz10612/poppler-windows/releases
+
 ### Erro WinError 10013 no Windows (porta bloqueada)
 
 **Problema:** Ao tentar iniciar o backend, você recebe o erro:

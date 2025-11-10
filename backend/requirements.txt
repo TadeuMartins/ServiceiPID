@@ -13,3 +13,5 @@ python-dotenv
 opencv-python
 pytesseract
 scikit-image
+pdf2image
+pypdf
