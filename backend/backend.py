@@ -525,31 +525,6 @@ def get_electrical_diagram_dimensions() -> Tuple[float, float]:
     return (420.0, 297.0)
 
 
-def validate_grid_for_diagram_type(grid: int, diagram_type: str) -> None:
-    """
-    Validate that the grid parameter is appropriate for the diagram type.
-    
-    For electrical diagrams, grid must be a value that is a multiple or divisible by 4.
-    Valid values for electrical diagrams: 1, 2, 4
-    
-    For P&ID diagrams, grid can be any value from 1 to 6.
-    
-    Args:
-        grid: Grid parameter value
-        diagram_type: Type of diagram ("electrical" or "pid")
-        
-    Raises:
-        HTTPException: If grid is invalid for the diagram type
-    """
-    if diagram_type.lower() == "electrical":
-        valid_grid_values = [1, 2, 4]
-        if grid not in valid_grid_values:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Para diagramas elétricos, o parâmetro 'grid' deve ser 1, 2 ou 4 (múltiplo ou divisível por 4). Valor fornecido: {grid}"
-            )
-
-
 def detect_electrical_diagram_subtype(items: List[Dict[str, Any]], description: str = "") -> str:
     """
     Detect if electrical diagram is unipolar or multifilar based on equipment and description.
@@ -1970,9 +1945,6 @@ async def analyze_pdf(
 ):
     if not OPENAI_API_KEY:
         raise HTTPException(status_code=400, detail="OPENAI_API_KEY não definida. Configure a chave no arquivo .env")
-
-    # Validate grid parameter for diagram type
-    validate_grid_for_diagram_type(grid, diagram_type)
 
     data = await file.read()
     if not data:
