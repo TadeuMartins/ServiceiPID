@@ -132,7 +132,7 @@ async def startup_event():
         ids = [m.id for m in models.data]
         log_to_front("✅ Conexão OpenAI OK. Modelos detectados: " + ", ".join(ids[:8]))
     except Exception as e:
-        log_to_front(f"❌ Erro SSL verificado: {e}")
+        log_to_front(f"❌ Erro SSL verificado: {e!r}")
         try:
             new_client = make_client(verify_ssl=False)
             models = new_client.models.list()
@@ -824,7 +824,7 @@ def render_quadrant_png(page: fitz.Page, rect: fitz.Rect, dpi: int = 400,
             raise ValueError("Processed image is empty")
         return processed_bytes
     except Exception as e:
-        log_to_front(f"   ⚠️ Erro ao renderizar quadrante: {type(e).__name__}: {e}")
+        log_to_front(f"   ⚠️ Erro ao renderizar quadrante: {type(e).__name__}: {e!r}")
         traceback.print_exc()
         raise
 
@@ -1513,7 +1513,7 @@ def llm_call(image_b64: str, prompt: str, prefer_model: str = PRIMARY_MODEL):
         except Exception as e:
             # Check if it's an SSL error and retry without SSL verification
             if "SSL" in str(e) or "certificate" in str(e).lower():
-                log_to_front(f"⚠️ gpt-5 falhou com erro SSL: {e}")
+                log_to_front(f"⚠️ gpt-5 falhou com erro SSL: {e!r}")
                 log_to_front("🔄 Tentando novamente sem verificação SSL...")
                 client = make_client(verify_ssl=False)
                 try:
@@ -1532,7 +1532,7 @@ def llm_call(image_b64: str, prompt: str, prefer_model: str = PRIMARY_MODEL):
                 except Exception as e2:
                     log_to_front(f"⚠️ gpt-5 falhou novamente: {e2}")
             else:
-                log_to_front(f"⚠️ gpt-5 falhou: {e}")
+                log_to_front(f"⚠️ gpt-5 falhou: {e!r}")
     
     try:
         resp = client.chat.completions.create(
@@ -1551,7 +1551,7 @@ def llm_call(image_b64: str, prompt: str, prefer_model: str = PRIMARY_MODEL):
     except Exception as e:
         # Check if it's an SSL error and retry without SSL verification
         if "SSL" in str(e) or "certificate" in str(e).lower():
-            log_to_front(f"❌ Fallback {FALLBACK_MODEL} falhou com erro SSL: {e}")
+            log_to_front(f"❌ Fallback {FALLBACK_MODEL} falhou com erro SSL: {e!r}")
             log_to_front("🔄 Tentando novamente sem verificação SSL...")
             client = make_client(verify_ssl=False)
             try:
@@ -1573,7 +1573,7 @@ def llm_call(image_b64: str, prompt: str, prefer_model: str = PRIMARY_MODEL):
                 traceback.print_exc()
                 raise
         else:
-            log_to_front(f"❌ Fallback {FALLBACK_MODEL} falhou: {e}")
+            log_to_front(f"❌ Fallback {FALLBACK_MODEL} falhou: {e!r}")
             traceback.print_exc()
             raise
 
@@ -1614,7 +1614,7 @@ async def process_quadrant(gx, gy, rect, page, W_mm, H_mm, dpi, diagram_type="pi
         log_to_front(f"   └─ itens Quadrant {label}: {len(items_q)}")
         return items_q
     except Exception as e:
-        log_to_front(f"   ❌ Erro Quadrant {label}: {e}")
+        log_to_front(f"   ❌ Erro Quadrant {label}: {e!r}")
         return []
 
 
@@ -1645,8 +1645,8 @@ async def analyze_pdf(
     try:
         doc = fitz.open(stream=data, filetype="pdf")
     except Exception as e:
-        log_to_front(f"❌ Erro ao abrir PDF: {e}")
-        raise HTTPException(status_code=400, detail=f"Erro PDF: {e}")
+        log_to_front(f"❌ Erro ao abrir PDF: {e!r}")
+        raise HTTPException(status_code=400, detail=f"Erro PDF: {str(e)}")
 
     all_pages: List[Dict[str, Any]] = []
 
@@ -1674,7 +1674,7 @@ async def analyze_pdf(
             log_to_front(f"🌐 RAW GLOBAL OUTPUT (page {page_num}): {raw[:500]}")
             global_list = ensure_json_list(raw)
         except Exception as e:
-            log_to_front(f"⚠️ Global falhou na página {page_num}: {e}")
+            log_to_front(f"⚠️ Global falhou na página {page_num}: {e!r}")
             global_list = []
 
         log_to_front(f"🌐 Global → itens: {len(global_list)}")
@@ -1883,7 +1883,7 @@ async def analyze_pdf(
             pid_knowledge_base[pid_id]["description"] = description
             log_to_front(f"📝 Descrição ultra-completa do processo gerada automaticamente")
         except Exception as e:
-            log_to_front(f"⚠️ Não foi possível gerar descrição: {e}")
+            log_to_front(f"⚠️ Não foi possível gerar descrição: {e!r}")
         
         # Adiciona pid_id ao response
         for page in all_pages:
@@ -2336,7 +2336,7 @@ async def generate_pid(
         except Exception as e:
             # Check if it's an SSL error and retry without SSL verification
             if "SSL" in str(e) or "certificate" in str(e).lower():
-                log_to_front(f"⚠️ Erro SSL detectado: {e}")
+                log_to_front(f"⚠️ Erro SSL detectado: {e!r}")
                 log_to_front("🔄 Tentando novamente sem verificação SSL...")
                 client = make_client(verify_ssl=False)
                 resp = client.chat.completions.create(
@@ -2450,7 +2450,7 @@ async def generate_pid(
             pid_knowledge_base[pid_id]["description"] = description
             log_to_front(f"📝 Descrição ultra-completa do processo gerada automaticamente")
         except Exception as e:
-            log_to_front(f"⚠️ Não foi possível gerar descrição: {e}")
+            log_to_front(f"⚠️ Não foi possível gerar descrição: {e!r}")
         
         # Retorna no mesmo formato do /analyze
         response_data = [{
@@ -2466,7 +2466,7 @@ async def generate_pid(
         return JSONResponse(content=response_data)
         
     except Exception as e:
-        log_to_front(f"❌ Erro na geração: {e}")
+        log_to_front(f"❌ Erro na geração: {e!r}")
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Erro ao gerar P&ID: {str(e)}")
 
@@ -2758,7 +2758,7 @@ Seja técnico e específico, usando terminologia da engenharia de processos."""
         return description
         
     except Exception as e:
-        log_to_front(f"❌ Erro ao gerar descrição: {e}")
+        log_to_front(f"❌ Erro ao gerar descrição: {e!r}")
         return f"Erro ao gerar descrição: {str(e)}"
 
 
@@ -2882,7 +2882,7 @@ Se a informação visual for relevante, use-a. Referencie equipamentos por suas 
         return answer
         
     except Exception as e:
-        log_to_front(f"❌ Erro no modo vision: {e}")
+        log_to_front(f"❌ Erro no modo vision: {e!r}")
         # Fallback para modo texto
         log_to_front("🔄 Tentando modo texto como fallback")
         return await chat_with_text(pid_id, question, pid_info)
@@ -2937,7 +2937,7 @@ Se a informação solicitada não estiver disponível, indique isso claramente."
         return answer
         
     except Exception as e:
-        log_to_front(f"❌ Erro no modo texto: {e}")
+        log_to_front(f"❌ Erro no modo texto: {e!r}")
         raise
 
 
@@ -2996,7 +2996,7 @@ async def chat_about_pid(
         })
         
     except Exception as e:
-        log_to_front(f"❌ Erro no chatbot: {e}")
+        log_to_front(f"❌ Erro no chatbot: {e!r}")
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Erro ao processar pergunta: {str(e)}")
 
