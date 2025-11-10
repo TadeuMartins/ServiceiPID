@@ -155,7 +155,7 @@ async def startup_event():
             log_to_front("⚠️ Conexão sem SSL. Modelos: " + ", ".join(ids[:8]))
             globals()["client"] = new_client
         except Exception as e2:
-            log_to_front(f"❌ Falha também sem SSL: {e2}")
+            log_to_front(f"❌ Falha também sem SSL: {e2!r}")
 
 
 @app.get("/health")
@@ -1840,7 +1840,7 @@ def llm_call(image_b64: str, prompt: str, prefer_model: str = PRIMARY_MODEL):
                     )
                     return "gpt-5", resp
                 except Exception as e2:
-                    log_to_front(f"⚠️ gpt-5 falhou novamente: {e2}")
+                    log_to_front(f"⚠️ gpt-5 falhou novamente: {e2!r}")
             else:
                 log_to_front(f"⚠️ gpt-5 falhou: {e!r}")
     
@@ -1879,7 +1879,7 @@ def llm_call(image_b64: str, prompt: str, prefer_model: str = PRIMARY_MODEL):
                 )
                 return FALLBACK_MODEL, resp
             except Exception as e2:
-                log_to_front(f"❌ Fallback {FALLBACK_MODEL} falhou novamente: {e2}")
+                log_to_front(f"❌ Fallback {FALLBACK_MODEL} falhou novamente: {e2!r}")
                 traceback.print_exc()
                 raise
         else:
