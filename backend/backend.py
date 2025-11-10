@@ -193,6 +193,94 @@ def mm_to_points(mm: float) -> float:
     return mm * MM_TO_PT
 
 
+def round_to_multiple_of_4(value: float) -> float:
+    """
+    Round a millimeter value to the nearest multiple of 4mm.
+    Required for electrical diagrams only.
+    Uses "round half up" strategy.
+    
+    Examples:
+        10.0 -> 12.0 (exactly between 8 and 12, rounds up)
+        10.5 -> 12.0 (closer to 12)
+        14.0 -> 16.0 (exactly between 12 and 16, rounds up)
+        15.9 -> 16.0 (closer to 16)
+        2.0 -> 4.0 (exactly between 0 and 4, rounds up)
+        
+    Args:
+        value: Coordinate value in millimeters
+        
+    Returns:
+        Coordinate rounded to nearest multiple of 4mm
+    """
+    import math
+    # Round half up: add 0.5 before dividing, then floor
+    return math.floor((value + 2.0) / 4.0) * 4.0
+
+
+def get_electrical_diagram_dimensions() -> Tuple[float, float]:
+    """
+    Get standard A3 horizontal sheet dimensions for electrical diagrams.
+    
+    A3 horizontal: 420mm (width) x 297mm (height)
+    
+    Returns:
+        Tuple of (width_mm, height_mm)
+    """
+    return (420.0, 297.0)
+
+
+def detect_electrical_diagram_subtype(items: List[Dict[str, Any]], description: str = "") -> str:
+    """
+    Detect if electrical diagram is unipolar or multifilar based on equipment and description.
+    
+    Unipolar diagrams show single-line representation (simplified, one line per phase group)
+    Multifilar diagrams show all conductors/phases explicitly
+    
+    Args:
+        items: List of equipment items from the diagram
+        description: Optional text description of the diagram
+        
+    Returns:
+        "unipolar" or "multifilar"
+    """
+    # Keywords that suggest multifilar (detailed, multi-conductor)
+    multifilar_keywords = [
+        "multifilar", "multi-filar", "três fases", "three phase", "trifásico", 
+        "three-phase", "l1", "l2", "l3", "r", "s", "t", "u", "v", "w",
+        "cabo", "condutor", "wire", "conductor", "phase"
+    ]
+    
+    # Keywords that suggest unipolar (single-line, simplified)
+    unipolar_keywords = [
+        "unipolar", "uni-polar", "unifilar", "uni-filar", "single line",
+        "single-line", "diagrama simplificado", "simplified"
+    ]
+    
+    # Check description
+    desc_lower = description.lower()
+    
+    # Count keyword occurrences
+    multifilar_count = sum(1 for keyword in multifilar_keywords if keyword in desc_lower)
+    unipolar_count = sum(1 for keyword in unipolar_keywords if keyword in desc_lower)
+    
+    # Check equipment tags and descriptions
+    for item in items:
+        tag = str(item.get("tag", "")).lower()
+        item_desc = str(item.get("descricao", "")).lower()
+        
+        multifilar_count += sum(1 for keyword in multifilar_keywords if keyword in tag or keyword in item_desc)
+        unipolar_count += sum(1 for keyword in unipolar_keywords if keyword in tag or keyword in item_desc)
+    
+    # Decide based on counts
+    if multifilar_count > unipolar_count:
+        return "multifilar"
+    elif unipolar_count > multifilar_count:
+        return "unipolar"
+    else:
+        # Default to multifilar if unclear (more common for detailed diagrams)
+        return "multifilar"
+
+
 def clean_markdown_fences(text: str) -> str:
     if not text:
         return ""
@@ -1247,7 +1335,39 @@ REGRAS CRÍTICAS PARA EXTRAÇÃO:
     
     # Add diagram-type-specific sections
     if is_electrical:
-        base += """
+        base += f"""
+**REGRAS ESPECÍFICAS PARA DIAGRAMAS ELÉTRICOS:**
+
+A. DIMENSÕES DE REFERÊNCIA (CRÍTICO):
+   - Diagramas elétricos SEMPRE usam folha A3 horizontal como referência
+   - Dimensões padrão A3 horizontal: 420mm (largura) x 297mm (altura)
+   - IMPORTANTE: Mesmo que a imagem tenha dimensões diferentes, considere a escala em relação ao A3
+   - As coordenadas devem estar proporcionais às dimensões A3 padrão
+
+B. ARREDONDAMENTO DE COORDENADAS (OBRIGATÓRIO PARA DIAGRAMAS ELÉTRICOS):
+   - TODAS as coordenadas (x_mm e y_mm) DEVEM ser arredondadas para múltiplos de 4mm
+   - Exemplos de arredondamento:
+     * x: 10.0 → 12.0 (10 arredonda para 12)
+     * x: 10.5 → 12.0 (10.5 arredonda para 12)
+     * x: 14.0 → 16.0 (14 arredonda para 16)
+     * x: 15.9 → 16.0 (15.9 arredonda para 16)
+     * x: 50.3 → 52.0 (50.3 arredonda para 52)
+   - REGRA: Arredonde para o múltiplo de 4 mais próximo (0, 4, 8, 12, 16, 20, 24, 28, 32, ...)
+   - Esta regra se aplica a AMBOS os eixos X e Y
+   - Primeiro meça a coordenada precisa, DEPOIS arredonde para múltiplo de 4mm
+
+C. TIPO DE DIAGRAMA ELÉTRICO:
+   - Identifique se o diagrama é UNIPOLAR ou MULTIFILAR
+   - UNIPOLAR (unifilar/single-line): representação simplificada, uma linha por grupo de fases
+     * Usado para visão geral do sistema
+     * Símbolos mais abstratos
+     * Foco em topologia e proteção
+   - MULTIFILAR (multi-filar/multi-line): todos os condutores/fases mostrados explicitamente
+     * Mostra todas as fases (L1, L2, L3 ou R, S, T)
+     * Detalhamento de cabos e conexões
+     * Usado para instalação e manutenção
+   - Inclua esta informação na análise para melhor matching de componentes
+
 3. TAGS E IDENTIFICAÇÃO:
    - Capture TAGs completas mesmo se prefixo e número estiverem separados visualmente
    - Exemplos elétricos: "CB-101", "M-201", "TR-301", "REL-401", "CT-101"
@@ -1274,34 +1394,38 @@ REGRAS CRÍTICAS PARA EXTRAÇÃO:
 
 FORMATO DE SAÍDA (JSON OBRIGATÓRIO):
 
-IMPORTANTE SOBRE COORDENADAS:
-- x_mm e y_mm devem ser números com precisão de 0.1 mm (uma casa decimal)
-- Use valores como 234.5, 567.8, 1045.3 (NÃO arredonde para inteiros)
-- Garanta que as coordenadas referenciam o centro geométrico exato do símbolo
-- Exemplo: Para um motor centralizado em (234.5, 567.8), NÃO use (234, 567) ou (235, 568)
+IMPORTANTE SOBRE COORDENADAS PARA DIAGRAMAS ELÉTRICOS:
+- x_mm e y_mm DEVEM ser múltiplos de 4mm (arredondados)
+- Exemplos CORRETOS: 0.0, 4.0, 8.0, 12.0, 16.0, 20.0, 24.0, 28.0, 32.0, etc.
+- Exemplos INCORRETOS: 10.0, 10.5, 14.0, 15.9, 234.5 (não são múltiplos de 4)
+- PROCESSO: 
+  1. Meça a coordenada precisa do centro do símbolo
+  2. Arredonde para o múltiplo de 4 mais próximo
+  3. Exemplo: centro em (234.5, 567.8) → arredonde para (236.0, 568.0)
+- Garanta que as coordenadas referenciam o centro geométrico exato do símbolo ANTES de arredondar
 
 [
   {
     "tag": "CB-101",
     "descricao": "Disjuntor Principal",
-    "x_mm": 234.5,
-    "y_mm": 567.8,
+    "x_mm": 236.0,
+    "y_mm": 568.0,
     "from": "TR-101",
     "to": "M-201"
   },
   {
     "tag": "M-201",
     "descricao": "Motor Trifásico",
-    "x_mm": 445.2,
-    "y_mm": 555.3,
+    "x_mm": 444.0,
+    "y_mm": 556.0,
     "from": "CB-101",
     "to": "N/A"
   },
   {
     "tag": "CT-101",
     "descricao": "Transformador de Corrente",
-    "x_mm": 320.8,
-    "y_mm": 570.0,
+    "x_mm": 320.0,
+    "y_mm": 568.0,
     "from": "CB-101",
     "to": "A-101"
   }
@@ -1571,6 +1695,14 @@ async def analyze_pdf(
 
         raw_items = (global_list or []) + (quad_items or [])
         combined = []
+        
+        # For electrical diagrams, detect subtype early for better matching
+        diagram_subtype = ""
+        if diagram_type.lower() == "electrical":
+            # Do a preliminary scan to detect subtype
+            all_descriptions = " ".join([str(it.get("descricao", "")) for it in raw_items if isinstance(it, dict)])
+            diagram_subtype = detect_electrical_diagram_subtype(raw_items, all_descriptions)
+            log_to_front(f"⚡ Tipo de diagrama elétrico detectado: {diagram_subtype.upper()}")
 
         for it in raw_items:
             if not isinstance(it, dict):
@@ -1611,6 +1743,17 @@ async def analyze_pdf(
             # Log warning if coordinates were out of bounds (may indicate extraction issue)
             if x_was_clamped or y_was_clamped:
                 log_to_front(f"   ⚠️ Coordenadas ajustadas para {tag}: ({x_in_orig:.1f}, {y_in_orig:.1f}) → ({x_in:.1f}, {y_in:.1f})")
+            
+            # For electrical diagrams, round coordinates to multiples of 4mm
+            if diagram_type.lower() == "electrical":
+                x_before_rounding = x_in
+                y_before_rounding = y_in
+                x_in = round_to_multiple_of_4(x_in)
+                y_in = round_to_multiple_of_4(y_in)
+                y_cad = y_in  # Update y_cad as well
+                
+                if x_before_rounding != x_in or y_before_rounding != y_in:
+                    log_to_front(f"   📐 Arredondamento para múltiplo de 4mm - {tag}: ({x_before_rounding:.1f}, {y_before_rounding:.1f}) → ({x_in:.1f}, {y_in:.1f})")
 
             item = {
                 "tag": tag,
@@ -1627,7 +1770,7 @@ async def analyze_pdf(
 
             try:
                 tipo = it.get("tipo", "")
-                match = match_system_fullname(item["tag"], item["descricao"], tipo, diagram_type)
+                match = match_system_fullname(item["tag"], item["descricao"], tipo, diagram_type, diagram_subtype)
                 item.update(match)
             except Exception as e:
                 item.update({
@@ -1636,6 +1779,8 @@ async def analyze_pdf(
                     "matcher_error": str(e),
                     "diagram_type": diagram_type
                 })
+                if diagram_subtype:
+                    item["diagram_subtype"] = diagram_subtype
 
             combined.append(item)
 
@@ -1757,20 +1902,25 @@ def build_generation_prompt(process_description: str, width_mm: float = 1189.0, 
     """
     Constrói prompt técnico e detalhado para gerar P&ID ou diagrama elétrico a partir de descrição do processo.
     A0 sheet dimensions: 1189mm x 841mm (landscape)
+    A3 sheet dimensions: 420mm x 297mm (landscape) - used for electrical diagrams
     """
     
     is_electrical = diagram_type.lower() == "electrical"
     
+    # For electrical diagrams, always use A3 dimensions
     if is_electrical:
+        width_mm, height_mm = get_electrical_diagram_dimensions()
         diagram_name = "Electrical Diagram (Diagrama Elétrico)"
         standards = "electrical standards and symbols"
         task_description = "electrical diagram"
         concepts = "electrical diagram concepts and standard electrical symbols"
+        sheet_format = "A3 landscape format"
     else:
         diagram_name = "P&ID (Piping and Instrumentation Diagram)"
         standards = "ISA S5.1, S5.2, S5.3 standards and process engineering best practices"
         task_description = "P&ID"
         concepts = "P&ID concepts and ISA standards"
+        sheet_format = "A0 landscape format"
     
     prompt = f"""
 You are an educational tool that helps demonstrate {diagram_name} 
@@ -1789,7 +1939,7 @@ CRITICAL: You MUST generate a {diagram_name.upper()}, NOT any other type of diag
 Focus exclusively on {"electrical components, connections, and power distribution" if is_electrical else "process equipment, piping, and instrumentation"}.
 
 TECHNICAL SPECIFICATIONS:
-- Sheet: A0 landscape format
+- Sheet: {sheet_format}
 - Dimensions: {width_mm} mm (width/X) x {height_mm} mm (height/Y)
 - Coordinate system: X increases left to right, Y increases top to bottom
 - Origin: Top left corner is point (0, 0)
@@ -1993,7 +2143,19 @@ OUTPUT FORMAT - CRITICAL:
 YOU MUST RESPOND WITH ONLY A JSON ARRAY. NO MARKDOWN, NO EXPLANATIONS, NO ADDITIONAL TEXT.
 Your entire response must be ONLY the JSON array starting with '[' and ending with ']'.
 
-COORDINATE PRECISION REQUIREMENTS:
+COORDINATE PRECISION REQUIREMENTS:"""
+    
+    # Add diagram-type-specific coordinate requirements
+    if is_electrical:
+        prompt += """
+- For ELECTRICAL DIAGRAMS: All x_mm and y_mm values MUST be multiples of 4mm
+- Valid examples: 0.0, 4.0, 8.0, 12.0, 16.0, 20.0, 24.0, 28.0, 32.0, etc.
+- INVALID examples: 10.0, 10.5, 14.0, 15.9, 150.5, 234.8 (not multiples of 4)
+- Round to the nearest multiple of 4mm
+- Coordinates reference the EXACT geometric center of symbols (then rounded)
+"""
+    else:
+        prompt += """
 - All x_mm and y_mm values MUST have decimal precision (0.1 mm)
 - Use format: 150.5, 234.8, 567.3 (NOT 150, 234, 567)
 - Coordinates reference the EXACT geometric center of symbols
@@ -2008,56 +2170,56 @@ EXAMPLE OUTPUT FOR ELECTRICAL DIAGRAM (Star-Delta Starter):
   {
     "tag": "CB-101",
     "descricao": "Main Circuit Breaker",
-    "x_mm": 150.5,
-    "y_mm": 400.0,
+    "x_mm": 152.0,
+    "y_mm": 148.0,
     "from": "N/A",
     "to": "C-101"
   },
   {
     "tag": "C-101",
     "descricao": "Main Contactor",
-    "x_mm": 250.5,
-    "y_mm": 400.0,
+    "x_mm": 252.0,
+    "y_mm": 148.0,
     "from": "CB-101",
     "to": "C-102"
   },
   {
     "tag": "C-102",
     "descricao": "Star Contactor",
-    "x_mm": 350.5,
-    "y_mm": 350.0,
+    "x_mm": 352.0,
+    "y_mm": 100.0,
     "from": "C-101",
     "to": "M-101"
   },
   {
     "tag": "C-103",
     "descricao": "Delta Contactor",
-    "x_mm": 350.5,
-    "y_mm": 450.0,
+    "x_mm": 352.0,
+    "y_mm": 196.0,
     "from": "C-101",
     "to": "M-101"
   },
   {
     "tag": "M-101",
     "descricao": "Three-Phase Motor",
-    "x_mm": 500.5,
-    "y_mm": 400.0,
+    "x_mm": 400.0,
+    "y_mm": 148.0,
     "from": "C-102",
     "to": "N/A"
   },
   {
     "tag": "REL-101",
     "descricao": "Overload Relay",
-    "x_mm": 420.5,
-    "y_mm": 400.0,
+    "x_mm": 376.0,
+    "y_mm": 148.0,
     "from": "C-101",
     "to": "M-101"
   },
   {
     "tag": "A-101",
     "descricao": "Ammeter",
-    "x_mm": 300.5,
-    "y_mm": 300.0,
+    "x_mm": 300.0,
+    "y_mm": 100.0,
     "from": "C-101",
     "to": "N/A"
   }
@@ -2117,7 +2279,7 @@ CRITICAL REMINDERS:
 - NO explanations, NO markdown formatting (no ```json), NO introductory text
 - Start directly with '[' and end with ']'
 - Coordinates must be within limits: X: 0-{width_mm}, Y: 0-{height_mm}
-- Coordinates MUST use decimal precision (e.g., 150.5, NOT 150)
+{"- Coordinates MUST be multiples of 4mm (e.g., 0.0, 4.0, 8.0, 12.0, 16.0, 20.0, etc.)" if is_electrical else "- Coordinates MUST use decimal precision (e.g., 150.5, NOT 150)"}
 - Coordinates must reference the CENTER of equipment and instruments (not piping)
 - This is an educational example to demonstrate {"electrical diagram concepts" if is_electrical else "P&ID concepts and ISA standards"}
 - Include ALL typical essential elements: equipment, instrumentation, {"protection devices, controls" if is_electrical else "valves, controls"}
@@ -2143,9 +2305,15 @@ async def generate_pid(
     
     log_to_front(f"🎨 Gerando P&ID para: {prompt}")
     
-    # Dimensões folha A0 (landscape)
-    W_mm = 1189.0
-    H_mm = 841.0
+    # Dimensões da folha baseadas no tipo de diagrama
+    # A3 horizontal para diagramas elétricos, A0 para P&ID
+    if diagram_type.lower() == "electrical":
+        W_mm, H_mm = get_electrical_diagram_dimensions()
+        log_to_front(f"📐 Usando dimensões A3 horizontal: {W_mm}mm x {H_mm}mm")
+    else:
+        W_mm = 1189.0
+        H_mm = 841.0
+        log_to_front(f"📐 Usando dimensões A0 horizontal: {W_mm}mm x {H_mm}mm")
     
     try:
         # Gera o prompt de geração
@@ -2194,6 +2362,13 @@ async def generate_pid(
         
         log_to_front(f"✅ Gerados {len(items)} equipamentos/instrumentos")
         
+        # For electrical diagrams, detect subtype early for better matching
+        diagram_subtype = ""
+        if diagram_type.lower() == "electrical":
+            all_descriptions = " ".join([str(it.get("descricao", "")) for it in items if isinstance(it, dict)])
+            diagram_subtype = detect_electrical_diagram_subtype(items, all_descriptions + " " + prompt)
+            log_to_front(f"⚡ Tipo de diagrama elétrico detectado: {diagram_subtype.upper()}")
+        
         # Processa cada item
         result_items = []
         for it in items:
@@ -2209,6 +2384,12 @@ async def generate_pid(
             
             # No Y flip - top-left origin (0,0) for both y_mm and y_mm_cad
             y_cad = y_in
+            
+            # For electrical diagrams, round coordinates to multiples of 4mm
+            if diagram_type.lower() == "electrical":
+                x_in = round_to_multiple_of_4(x_in)
+                y_in = round_to_multiple_of_4(y_in)
+                y_cad = y_in  # Update y_cad as well
             
             item = {
                 "tag": it.get("tag", "N/A"),
@@ -2226,7 +2407,7 @@ async def generate_pid(
             # Aplica matcher para SystemFullName
             try:
                 tipo = it.get("tipo", "")
-                match = match_system_fullname(item["tag"], item["descricao"], tipo, diagram_type)
+                match = match_system_fullname(item["tag"], item["descricao"], tipo, diagram_type, diagram_subtype)
                 item.update(match)
                 log_to_front(f"  ✓ {item['tag']}: {match.get('SystemFullName', 'N/A')}")
             except Exception as e:
@@ -2236,6 +2417,8 @@ async def generate_pid(
                     "matcher_error": str(e),
                     "diagram_type": diagram_type
                 })
+                if diagram_subtype:
+                    item["diagram_subtype"] = diagram_subtype
             
             result_items.append(item)
         

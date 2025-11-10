@@ -242,7 +242,7 @@ def cosine_similarity(a, b):
     return float(similarity)
 
 # --- Matcher principal ---
-def match_system_fullname(tag: str, descricao: str, tipo: str = "", diagram_type: str = "pid") -> dict:
+def match_system_fullname(tag: str, descricao: str, tipo: str = "", diagram_type: str = "pid", diagram_subtype: str = "") -> dict:
     """
     Match system full name based on tag, description, and type.
     
@@ -251,6 +251,7 @@ def match_system_fullname(tag: str, descricao: str, tipo: str = "", diagram_type
         descricao: Equipment description
         tipo: Equipment type
         diagram_type: Type of diagram - "pid" for P&ID or "electrical" for Electrical Diagram
+        diagram_subtype: Subtype for electrical diagrams - "unipolar" or "multifilar"
     
     Returns:
         Dictionary with SystemFullName, confidence, and reference data
@@ -262,14 +263,20 @@ def match_system_fullname(tag: str, descricao: str, tipo: str = "", diagram_type
             df_ref = df_ref_electrical
             ref_embeddings = ref_embeddings_electrical
             diagram_label = "Electrical"
+            
+            # Add subtype to query for better matching
+            if diagram_subtype:
+                query_text = f"{diagram_subtype} {tipo} {tag} {descricao}".strip()
+            else:
+                query_text = f"{tipo} {tag} {descricao}".strip()
         else:
             # Default to P&ID
             _initialize_pid()
             df_ref = df_ref_pid
             ref_embeddings = ref_embeddings_pid
             diagram_label = "P&ID"
+            query_text = f"{tipo} {tag} {descricao}".strip()
         
-        query_text = f"{tipo} {tag} {descricao}".strip()
         emb_q = client.embeddings.create(
             model="text-embedding-3-small",
             input=query_text
@@ -281,15 +288,21 @@ def match_system_fullname(tag: str, descricao: str, tipo: str = "", diagram_type
 
         ref_row = df_ref.iloc[best_idx]
 
-        return {
+        result = {
             "SystemFullName": ref_row["SystemFullName"],
             "Confiança": round(best_score, 4),
             "Tipo_ref": ref_row["Type"],
             "Descricao_ref": ref_row["Descricao"],
             "diagram_type": diagram_label
         }
+        
+        # Add subtype to result if it's an electrical diagram
+        if diagram_type.lower() == "electrical" and diagram_subtype:
+            result["diagram_subtype"] = diagram_subtype
+            
+        return result
     except Exception as e:
-        return {
+        result = {
             "SystemFullName": None,
             "Confiança": 0.0,
             "Tipo_ref": tipo or "N/A",
@@ -297,4 +310,9 @@ def match_system_fullname(tag: str, descricao: str, tipo: str = "", diagram_type
             "matcher_error": str(e),
             "diagram_type": diagram_type
         }
+        
+        if diagram_type.lower() == "electrical" and diagram_subtype:
+            result["diagram_subtype"] = diagram_subtype
+            
+        return result
 
