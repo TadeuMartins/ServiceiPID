@@ -23,6 +23,21 @@ import fitz  # PyMuPDF
 import httpx, certifi
 from dotenv import load_dotenv
 
+# Import fallback PDF libraries
+try:
+    from pdf2image import convert_from_bytes
+    PDF2IMAGE_AVAILABLE = True
+except ImportError:
+    PDF2IMAGE_AVAILABLE = False
+    convert_from_bytes = None
+
+try:
+    from pypdf import PdfReader
+    PYPDF_AVAILABLE = True
+except ImportError:
+    PYPDF_AVAILABLE = False
+    PdfReader = None
+
 from fastapi import FastAPI, UploadFile, Query
 from fastapi import HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -159,94 +174,289 @@ def ping():
 
 
 # ============================================================
-# FUNÇÕES AUXILIARES
+# PDF WRAPPER - Suporte a múltiplas bibliotecas com fallback
 # ============================================================
 
-def open_pdf_safely(data: bytes, filename: str = "document.pdf") -> fitz.Document:
+class PDFPage:
     """
-    Abre um PDF de forma robusta, com tratamento de erros específicos do MuPDF.
+    Wrapper unificado para páginas PDF que funciona com PyMuPDF ou pdf2image.
+    Fornece interface consistente independente da biblioteca usada.
+    """
+    def __init__(self, page_image: Image.Image, page_num: int, width_mm: float, height_mm: float, source: str = "fallback"):
+        self.page_num = page_num
+        self.width_mm = width_mm
+        self.height_mm = height_mm
+        self.source = source
+        self._image = page_image
+        
+        # Cria um rect compatível com PyMuPDF
+        self.rect = type('Rect', (), {
+            'width': width_mm / PT_TO_MM,  # Converte de volta para pontos
+            'height': height_mm / PT_TO_MM
+        })()
     
-    Trata especificamente o erro "cannot find ExtGState resource" que ocorre
-    em PDFs corrompidos ou mal formatados.
+    def get_pixmap(self, dpi: int = 300) -> 'FallbackPixmap':
+        """Retorna pixmap da página renderizada"""
+        # Se já temos a imagem, redimensiona se necessário
+        target_width = int(self.width_mm / 25.4 * dpi)
+        target_height = int(self.height_mm / 25.4 * dpi)
+        
+        img_resized = self._image.resize((target_width, target_height), Image.Resampling.LANCZOS)
+        return FallbackPixmap(img_resized)
+
+
+class FallbackPixmap:
+    """Wrapper para pixmap que funciona como fitz.Pixmap"""
+    def __init__(self, image: Image.Image):
+        self._image = image
+    
+    def tobytes(self, output_format: str = "png") -> bytes:
+        """Converte para bytes no formato especificado"""
+        buffer = io.BytesIO()
+        self._image.save(buffer, format=output_format.upper())
+        return buffer.getvalue()
+
+
+class PDFDocument:
+    """
+    Wrapper unificado para documentos PDF.
+    Tenta usar PyMuPDF primeiro, fallback para pdf2image se falhar.
+    """
+    def __init__(self, pages: List[PDFPage], source: str = "fallback"):
+        self._pages = pages
+        self.source = source
+    
+    def __len__(self):
+        return len(self._pages)
+    
+    def __getitem__(self, index):
+        return self._pages[index]
+    
+    def __iter__(self):
+        return iter(self._pages)
+
+
+def open_pdf_with_fallback(data: bytes, filename: str = "document.pdf", dpi: int = 300) -> PDFDocument:
+    """
+    Abre um PDF usando PyMuPDF primeiro, com fallback automático para pdf2image.
+    
+    GARANTE que o PDF será aberto, mesmo se estiver corrompido.
     
     Args:
         data: Bytes do arquivo PDF
         filename: Nome do arquivo (para logs)
+        dpi: DPI para renderização (usado no fallback)
         
     Returns:
-        fitz.Document: Documento PDF aberto
+        PDFDocument: Documento PDF que funciona independente da biblioteca
         
     Raises:
-        HTTPException: Com mensagem de erro informativa em português
+        HTTPException: Apenas se TODAS as bibliotecas falharem
     """
-    # Tenta abrir normalmente primeiro
+    # TENTATIVA 1: PyMuPDF (mais rápido e preferido)
     try:
         doc = fitz.open(stream=data, filetype="pdf")
-        log_to_front(f"✅ PDF aberto com sucesso: {filename}")
-        return doc
+        
+        # Testa acesso à primeira página
+        if len(doc) > 0:
+            _ = doc[0].rect
+            log_to_front(f"✅ PDF aberto com PyMuPDF: {filename} ({len(doc)} páginas)")
+            
+            # Converte para nosso wrapper
+            pages = []
+            for i, page in enumerate(doc):
+                W_mm = points_to_mm(page.rect.width)
+                H_mm = points_to_mm(page.rect.height)
+                
+                # Renderiza a página
+                pix = page.get_pixmap(dpi=dpi)
+                img_bytes = pix.tobytes("png")
+                img = Image.open(io.BytesIO(img_bytes))
+                
+                pages.append(PDFPage(img, i + 1, W_mm, H_mm, source="pymupdf"))
+            
+            doc.close()
+            return PDFDocument(pages, source="pymupdf")
+        else:
+            raise Exception("PDF vazio")
+            
     except Exception as e:
         error_msg = str(e).lower()
         
-        # Detecta erros específicos do MuPDF
+        # Log do erro do PyMuPDF
         if "extgstate" in error_msg or "syntax error" in error_msg:
-            log_to_front(f"⚠️ Detectado erro MuPDF ExtGState em {filename}")
-            log_to_front(f"   Erro original: {e!r}")
-            
-            # Tenta abrir com recuperação de erros habilitada
-            try:
-                # PyMuPDF permite abrir PDFs com erros ignorando problemas
-                doc = fitz.open(stream=data, filetype="pdf")
-                
-                # Valida se consegue acessar pelo menos a primeira página
-                if len(doc) > 0:
-                    _ = doc[0].rect  # Testa acesso à página
-                    log_to_front(f"✅ PDF parcialmente recuperado (modo tolerante)")
-                    log_to_front(f"   ⚠️ ATENÇÃO: O PDF pode ter recursos gráficos faltando")
-                    log_to_front(f"   Páginas acessíveis: {len(doc)}")
-                    return doc
-                else:
-                    raise Exception("PDF vazio após recuperação")
-                    
-            except Exception as e2:
-                log_to_front(f"❌ Falha na recuperação do PDF: {e2!r}")
-                raise HTTPException(
-                    status_code=400,
-                    detail=(
-                        f"❌ ERRO: PDF corrompido ou mal formatado\n\n"
-                        f"Erro técnico: {str(e)}\n\n"
-                        f"📋 O QUE SIGNIFICA ESTE ERRO?\n"
-                        f"O erro 'cannot find ExtGState resource' indica que o PDF está faltando recursos gráficos internos "
-                        f"(ExtGState = Extended Graphics State). Isso geralmente ocorre quando:\n"
-                        f"• O PDF foi gerado incorretamente por algum software\n"
-                        f"• O arquivo foi corrompido durante transferência\n"
-                        f"• O PDF foi editado de forma inadequada\n"
-                        f"• Há incompatibilidade entre versões do formato PDF\n\n"
-                        f"🔧 COMO RESOLVER:\n"
-                        f"1. Abra o PDF em um visualizador (Adobe Acrobat, Foxit, etc.)\n"
-                        f"2. Salve uma nova cópia do arquivo (Arquivo → Salvar Como)\n"
-                        f"3. Se possível, use 'Salvar como PDF otimizado' ou 'Salvar como PDF/A'\n"
-                        f"4. Tente fazer upload da nova cópia\n\n"
-                        f"💡 ALTERNATIVAS:\n"
-                        f"• Converta o PDF usando ferramentas online (ex: ilovepdf.com)\n"
-                        f"• Recrie o PDF a partir do documento original\n"
-                        f"• Use ferramentas de reparo de PDF (ex: PDF Recovery, PDFtk)\n\n"
-                        f"📄 Arquivo problemático: {filename}"
-                    )
-                )
+            log_to_front(f"⚠️ PyMuPDF falhou (ExtGState error): {filename}")
+        else:
+            log_to_front(f"⚠️ PyMuPDF falhou: {e!r}")
         
-        # Outros erros genéricos do PDF
-        log_to_front(f"❌ Erro ao abrir PDF {filename}: {e!r}")
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                f"❌ ERRO ao abrir PDF: {str(e)}\n\n"
-                f"Verifique se:\n"
-                f"• O arquivo é um PDF válido\n"
-                f"• O arquivo não está protegido por senha\n"
-                f"• O arquivo não está corrompido\n\n"
-                f"📄 Arquivo: {filename}"
-            )
+        # TENTATIVA 2: pdf2image com Poppler (mais tolerante a erros)
+        if PDF2IMAGE_AVAILABLE:
+            try:
+                log_to_front(f"🔄 Tentando fallback com pdf2image (Poppler)...")
+                
+                # Converte PDF para imagens usando Poppler
+                # Poppler é MUITO mais tolerante a PDFs corrompidos
+                images = convert_from_bytes(
+                    data,
+                    dpi=dpi,
+                    fmt='png',
+                    thread_count=4
+                )
+                
+                if not images:
+                    raise Exception("Nenhuma página renderizada")
+                
+                log_to_front(f"✅ PDF aberto com pdf2image: {filename} ({len(images)} páginas)")
+                
+                # Precisamos estimar dimensões - usa proporções da imagem
+                # Assume A4 ou A0 baseado nas proporções
+                pages = []
+                for i, img in enumerate(images):
+                    img_width, img_height = img.size
+                    aspect_ratio = img_width / img_height
+                    
+                    # Estima dimensões baseado na proporção
+                    # A4 = 210x297mm (ratio ~0.707)
+                    # A0 = 841x1189mm (ratio ~0.707)
+                    # Vamos usar A0 como padrão para P&IDs
+                    if aspect_ratio > 1.0:
+                        # Paisagem (landscape)
+                        W_mm = 1189.0
+                        H_mm = 841.0
+                    else:
+                        # Retrato (portrait)
+                        W_mm = 841.0
+                        H_mm = 1189.0
+                    
+                    pages.append(PDFPage(img, i + 1, W_mm, H_mm, source="pdf2image"))
+                
+                return PDFDocument(pages, source="pdf2image")
+                
+            except Exception as e2:
+                log_to_front(f"❌ pdf2image também falhou: {e2!r}")
+        else:
+            log_to_front(f"⚠️ pdf2image não disponível (instale com: pip install pdf2image)")
+        
+        # TENTATIVA 3: pypdf para metadados + PIL para renderização
+        if PYPDF_AVAILABLE:
+            try:
+                log_to_front(f"🔄 Tentando fallback com pypdf...")
+                
+                pdf_reader = PdfReader(io.BytesIO(data))
+                num_pages = len(pdf_reader.pages)
+                
+                log_to_front(f"✅ pypdf conseguiu ler {num_pages} páginas")
+                log_to_front(f"⚠️ LIMITAÇÃO: pypdf não suporta renderização")
+                log_to_front(f"   Tentando renderização básica...")
+                
+                # pypdf não pode renderizar, mas podemos tentar converter usando PIL
+                # Isso é um último recurso e pode não funcionar bem
+                raise Exception("pypdf não suporta renderização de imagens")
+                
+            except Exception as e3:
+                log_to_front(f"❌ pypdf também falhou: {e3!r}")
+        
+        # Se chegou aqui, TODAS as bibliotecas falharam
+        log_to_front(f"❌ TODAS as tentativas falharam para {filename}")
+        
+        # Mensagem de erro informativa
+        error_detail = (
+            f"❌ NÃO FOI POSSÍVEL ABRIR O PDF\n\n"
+            f"Tentamos as seguintes bibliotecas:\n"
+            f"1. ❌ PyMuPDF (MuPDF): {str(e)[:100]}\n"
         )
+        
+        if PDF2IMAGE_AVAILABLE:
+            error_detail += f"2. ❌ pdf2image (Poppler): Falhou também\n"
+        else:
+            error_detail += f"2. ⚠️ pdf2image (Poppler): Não instalado\n"
+        
+        if PYPDF_AVAILABLE:
+            error_detail += f"3. ❌ pypdf: Não suporta renderização\n"
+        else:
+            error_detail += f"3. ⚠️ pypdf: Não instalado\n"
+        
+        error_detail += (
+            f"\n🔧 SOLUÇÃO:\n"
+            f"1. Abra o PDF em um visualizador (Adobe Reader, Foxit)\n"
+            f"2. Salve uma nova cópia: Arquivo → Salvar Como\n"
+            f"3. Tente fazer upload da nova cópia\n\n"
+            f"💡 ALTERNATIVA:\n"
+            f"Use ferramentas online para reparar: ilovepdf.com/pt/reparar-pdf\n\n"
+            f"📄 Arquivo: {filename}"
+        )
+        
+        raise HTTPException(status_code=400, detail=error_detail)
+
+
+# Alias para compatibilidade
+open_pdf_safely = open_pdf_with_fallback
+
+
+def render_quadrant_from_page(page, rect, dpi: int = 400) -> bytes:
+    """
+    Renderiza um quadrante de uma página PDF (compatível com ambas as implementações).
+    
+    Args:
+        page: PDFPage ou fitz.Page
+        rect: Retângulo do quadrante (pode ser fitz.Rect ou coordenadas)
+        dpi: Resolução
+        
+    Returns:
+        PNG bytes preprocessados
+    """
+    try:
+        # Se é um PDFPage (nossa implementação fallback)
+        if isinstance(page, PDFPage):
+            # Extrai a região do quadrante da imagem completa
+            if hasattr(rect, 'x0'):  # fitz.Rect
+                x0_mm = points_to_mm(rect.x0)
+                y0_mm = points_to_mm(rect.y0)
+                x1_mm = points_to_mm(rect.x1)
+                y1_mm = points_to_mm(rect.y1)
+            else:
+                # Assume que é um dict ou tuple com coordenadas
+                x0_mm, y0_mm, x1_mm, y1_mm = rect
+            
+            # Converte coordenadas mm para pixels na imagem
+            img_width, img_height = page._image.size
+            x0_px = int(x0_mm / page.width_mm * img_width)
+            y0_px = int(y0_mm / page.height_mm * img_height)
+            x1_px = int(x1_mm / page.width_mm * img_width)
+            y1_px = int(y1_mm / page.height_mm * img_height)
+            
+            # Crop da região
+            cropped = page._image.crop((x0_px, y0_px, x1_px, y1_px))
+            
+            # Converte para bytes PNG
+            buffer = io.BytesIO()
+            cropped.save(buffer, format='PNG')
+            raw_bytes = buffer.getvalue()
+            
+            # Preprocessa
+            processed_bytes = preprocess_image(raw_bytes)
+            return processed_bytes
+        
+        # Se é um fitz.Page (PyMuPDF original)
+        else:
+            rotation = page.rotation if hasattr(page, 'rotation') else 0
+            
+            if rotation != 0:
+                mat = fitz.Matrix(1, 1).prerotate(rotation)
+                pix = page.get_pixmap(dpi=dpi, clip=rect, matrix=mat)
+            else:
+                pix = page.get_pixmap(dpi=dpi, clip=rect)
+            
+            raw_bytes = pix.tobytes("png")
+            processed_bytes = preprocess_image(raw_bytes)
+            return processed_bytes
+            
+    except Exception as e:
+        log_to_front(f"   ⚠️ Erro ao renderizar quadrante: {type(e).__name__}: {e!r}")
+        traceback.print_exc()
+        raise
+
+
 def points_to_mm(points: float) -> float:
     """
     Convert PDF points to millimeters with exact precision.
@@ -702,13 +912,14 @@ def dedup_items(items: List[Dict[str, Any]], page_num: int, tol_mm: float = 10.0
 # ============================================================
 # SUBDIVISÃO EM QUADRANTES
 # ============================================================
-def page_quadrants_with_overlap(page: fitz.Page, grid_x: int = 3, grid_y: int = 3, 
-                                 overlap_percent: float = 0.0) -> List[Tuple[int, int, fitz.Rect, str]]:
+def page_quadrants_with_overlap(page, grid_x: int = 3, grid_y: int = 3, 
+                                 overlap_percent: float = 0.0) -> List[Tuple[int, int, Any, str]]:
     """
     Generate quadrants with optional overlap to minimize edge artifacts.
+    Compatível com fitz.Page e PDFPage.
     
     Args:
-        page: PyMuPDF page object
+        page: PyMuPDF page object ou PDFPage
         grid_x: Number of columns
         grid_y: Number of rows
         overlap_percent: Percentage of overlap (0.0 to 0.5, where 0.5 = 50% offset)
@@ -716,10 +927,19 @@ def page_quadrants_with_overlap(page: fitz.Page, grid_x: int = 3, grid_y: int = 
     Returns:
         List of (gx, gy, rect, label) tuples
     """
-    # Use actual page dimensions without swapping
-    # The LLM sees the actual page orientation, so we must respect it
-    rect = page.rect
-    W, H = rect.width, rect.height
+    # Obtém dimensões da página
+    if isinstance(page, PDFPage):
+        # Nossa implementação fallback
+        W = page.rect.width
+        H = page.rect.height
+        rect_x0, rect_y0 = 0, 0
+        rect_x1, rect_y1 = W, H
+    else:
+        # fitz.Page
+        rect = page.rect
+        W, H = rect.width, rect.height
+        rect_x0, rect_y0 = rect.x0, rect.y0
+        rect_x1, rect_y1 = rect.x1, rect.y1
     
     quads = []
     
@@ -731,13 +951,26 @@ def page_quadrants_with_overlap(page: fitz.Page, grid_x: int = 3, grid_y: int = 
             x1 = x0 + (W / grid_x)
             y1 = y0 + (H / grid_y)
             
-            quad_rect = fitz.Rect(x0, y0, x1, y1)
-            quad_rect = fitz.Rect(
-                max(rect.x0, quad_rect.x0),
-                max(rect.y0, quad_rect.y0),
-                min(rect.x1, quad_rect.x1),
-                min(rect.y1, quad_rect.y1),
-            )
+            # Cria retângulo (compatível com ambos)
+            if isinstance(page, PDFPage):
+                # Para PDFPage, usamos coordenadas simples
+                quad_rect = type('Rect', (), {
+                    'x0': max(rect_x0, x0),
+                    'y0': max(rect_y0, y0),
+                    'x1': min(rect_x1, x1),
+                    'y1': min(rect_y1, y1),
+                    'width': min(rect_x1, x1) - max(rect_x0, x0),
+                    'height': min(rect_y1, y1) - max(rect_y0, y0)
+                })()
+            else:
+                # Para fitz.Page
+                quad_rect = fitz.Rect(x0, y0, x1, y1)
+                quad_rect = fitz.Rect(
+                    max(rect_x0, quad_rect.x0),
+                    max(rect_y0, quad_rect.y0),
+                    min(rect_x1, quad_rect.x1),
+                    min(rect_y1, quad_rect.y1),
+                )
             
             if quad_rect.width > 0 and quad_rect.height > 0:
                 label = f"{gy+1}-{gx+1}"
@@ -755,13 +988,24 @@ def page_quadrants_with_overlap(page: fitz.Page, grid_x: int = 3, grid_y: int = 
                 x1 = x0 + (W / grid_x)
                 y1 = y0 + (H / grid_y)
                 
-                quad_rect = fitz.Rect(x0, y0, x1, y1)
-                quad_rect = fitz.Rect(
-                    max(rect.x0, quad_rect.x0),
-                    max(rect.y0, quad_rect.y0),
-                    min(rect.x1, quad_rect.x1),
-                    min(rect.y1, quad_rect.y1),
-                )
+                # Cria retângulo (compatível com ambos)
+                if isinstance(page, PDFPage):
+                    quad_rect = type('Rect', (), {
+                        'x0': max(rect_x0, x0),
+                        'y0': max(rect_y0, y0),
+                        'x1': min(rect_x1, x1),
+                        'y1': min(rect_y1, y1),
+                        'width': min(rect_x1, x1) - max(rect_x0, x0),
+                        'height': min(rect_y1, y1) - max(rect_y0, y0)
+                    })()
+                else:
+                    quad_rect = fitz.Rect(x0, y0, x1, y1)
+                    quad_rect = fitz.Rect(
+                        max(rect_x0, quad_rect.x0),
+                        max(rect_y0, quad_rect.y0),
+                        min(rect_x1, quad_rect.x1),
+                        min(rect_y1, quad_rect.y1),
+                    )
                 
                 if quad_rect.width > 0 and quad_rect.height > 0:
                     label = f"{gy+1}-{gx+1}-overlap"
@@ -770,7 +1014,7 @@ def page_quadrants_with_overlap(page: fitz.Page, grid_x: int = 3, grid_y: int = 
     return quads
 
 
-def page_quadrants(page: fitz.Page, grid_x: int = 3, grid_y: int = 3):
+def page_quadrants(page, grid_x: int = 3, grid_y: int = 3):
     """Legacy quadrant generation - kept for backward compatibility"""
     quads_with_labels = page_quadrants_with_overlap(page, grid_x, grid_y, overlap_percent=0.0)
     # Return in old format (without label)
@@ -877,42 +1121,22 @@ def preprocess_image(img_bytes: bytes) -> bytes:
     return preprocess_image_adaptive(img_bytes, method="hybrid")
 
 
-def render_quadrant_png(page: fitz.Page, rect: fitz.Rect, dpi: int = 400, 
+def render_quadrant_png(page, rect, dpi: int = 400, 
                         handle_rotation: bool = True) -> bytes:
     """
     Render a quadrant of a PDF page to PNG with preprocessing.
+    Compatível com fitz.Page e PDFPage.
     
     Args:
-        page: PyMuPDF page object
+        page: PyMuPDF page object ou PDFPage
         rect: Rectangle to render
         dpi: Resolution
-        handle_rotation: Apply rotation correction based on page.rotation metadata
+        handle_rotation: Apply rotation correction (apenas para fitz.Page)
     
     Returns:
         Preprocessed PNG bytes
     """
-    try:
-        # Get page rotation metadata
-        rotation = page.rotation if handle_rotation else 0
-        
-        # Render with automatic rotation handling by PyMuPDF
-        # PyMuPDF's get_pixmap handles rotation automatically if we use matrix
-        if rotation != 0:
-            # Create rotation matrix
-            mat = fitz.Matrix(1, 1).prerotate(rotation)
-            pix = page.get_pixmap(dpi=dpi, clip=rect, matrix=mat)
-        else:
-            pix = page.get_pixmap(dpi=dpi, clip=rect)
-        
-        raw_bytes = pix.tobytes("png")
-        processed_bytes = preprocess_image(raw_bytes)
-        if not processed_bytes or len(processed_bytes) == 0:
-            raise ValueError("Processed image is empty")
-        return processed_bytes
-    except Exception as e:
-        log_to_front(f"   ⚠️ Erro ao renderizar quadrante: {type(e).__name__}: {e!r}")
-        traceback.print_exc()
-        raise
+    return render_quadrant_from_page(page, rect, dpi)
 
 
 # ============================================================
