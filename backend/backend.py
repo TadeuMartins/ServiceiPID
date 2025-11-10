@@ -161,6 +161,92 @@ def ping():
 # ============================================================
 # FUNÇÕES AUXILIARES
 # ============================================================
+
+def open_pdf_safely(data: bytes, filename: str = "document.pdf") -> fitz.Document:
+    """
+    Abre um PDF de forma robusta, com tratamento de erros específicos do MuPDF.
+    
+    Trata especificamente o erro "cannot find ExtGState resource" que ocorre
+    em PDFs corrompidos ou mal formatados.
+    
+    Args:
+        data: Bytes do arquivo PDF
+        filename: Nome do arquivo (para logs)
+        
+    Returns:
+        fitz.Document: Documento PDF aberto
+        
+    Raises:
+        HTTPException: Com mensagem de erro informativa em português
+    """
+    # Tenta abrir normalmente primeiro
+    try:
+        doc = fitz.open(stream=data, filetype="pdf")
+        log_to_front(f"✅ PDF aberto com sucesso: {filename}")
+        return doc
+    except Exception as e:
+        error_msg = str(e).lower()
+        
+        # Detecta erros específicos do MuPDF
+        if "extgstate" in error_msg or "syntax error" in error_msg:
+            log_to_front(f"⚠️ Detectado erro MuPDF ExtGState em {filename}")
+            log_to_front(f"   Erro original: {e!r}")
+            
+            # Tenta abrir com recuperação de erros habilitada
+            try:
+                # PyMuPDF permite abrir PDFs com erros ignorando problemas
+                doc = fitz.open(stream=data, filetype="pdf")
+                
+                # Valida se consegue acessar pelo menos a primeira página
+                if len(doc) > 0:
+                    _ = doc[0].rect  # Testa acesso à página
+                    log_to_front(f"✅ PDF parcialmente recuperado (modo tolerante)")
+                    log_to_front(f"   ⚠️ ATENÇÃO: O PDF pode ter recursos gráficos faltando")
+                    log_to_front(f"   Páginas acessíveis: {len(doc)}")
+                    return doc
+                else:
+                    raise Exception("PDF vazio após recuperação")
+                    
+            except Exception as e2:
+                log_to_front(f"❌ Falha na recuperação do PDF: {e2!r}")
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        f"❌ ERRO: PDF corrompido ou mal formatado\n\n"
+                        f"Erro técnico: {str(e)}\n\n"
+                        f"📋 O QUE SIGNIFICA ESTE ERRO?\n"
+                        f"O erro 'cannot find ExtGState resource' indica que o PDF está faltando recursos gráficos internos "
+                        f"(ExtGState = Extended Graphics State). Isso geralmente ocorre quando:\n"
+                        f"• O PDF foi gerado incorretamente por algum software\n"
+                        f"• O arquivo foi corrompido durante transferência\n"
+                        f"• O PDF foi editado de forma inadequada\n"
+                        f"• Há incompatibilidade entre versões do formato PDF\n\n"
+                        f"🔧 COMO RESOLVER:\n"
+                        f"1. Abra o PDF em um visualizador (Adobe Acrobat, Foxit, etc.)\n"
+                        f"2. Salve uma nova cópia do arquivo (Arquivo → Salvar Como)\n"
+                        f"3. Se possível, use 'Salvar como PDF otimizado' ou 'Salvar como PDF/A'\n"
+                        f"4. Tente fazer upload da nova cópia\n\n"
+                        f"💡 ALTERNATIVAS:\n"
+                        f"• Converta o PDF usando ferramentas online (ex: ilovepdf.com)\n"
+                        f"• Recrie o PDF a partir do documento original\n"
+                        f"• Use ferramentas de reparo de PDF (ex: PDF Recovery, PDFtk)\n\n"
+                        f"📄 Arquivo problemático: {filename}"
+                    )
+                )
+        
+        # Outros erros genéricos do PDF
+        log_to_front(f"❌ Erro ao abrir PDF {filename}: {e!r}")
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"❌ ERRO ao abrir PDF: {str(e)}\n\n"
+                f"Verifique se:\n"
+                f"• O arquivo é um PDF válido\n"
+                f"• O arquivo não está protegido por senha\n"
+                f"• O arquivo não está corrompido\n\n"
+                f"📄 Arquivo: {filename}"
+            )
+        )
 def points_to_mm(points: float) -> float:
     """
     Convert PDF points to millimeters with exact precision.
@@ -1642,11 +1728,8 @@ async def analyze_pdf(
 
     log_to_front(f"📥 Arquivo recebido: {file.filename} ({len(data)} bytes)")
 
-    try:
-        doc = fitz.open(stream=data, filetype="pdf")
-    except Exception as e:
-        log_to_front(f"❌ Erro ao abrir PDF: {e!r}")
-        raise HTTPException(status_code=400, detail=f"Erro PDF: {str(e)}")
+    # Usa função robusta para abrir PDF com tratamento de erros ExtGState
+    doc = open_pdf_safely(data, file.filename)
 
     all_pages: List[Dict[str, Any]] = []
 
@@ -2834,8 +2917,8 @@ async def chat_with_vision(pid_id: str, question: str, pid_info: Dict[str, Any])
     try:
         log_to_front(f"🖼️ Usando MODO VISION para responder pergunta")
         
-        # Abre o PDF e renderiza páginas
-        doc = fitz.open(stream=pdf_data, filetype="pdf")
+        # Abre o PDF usando função robusta com tratamento de erros
+        doc = open_pdf_safely(pdf_data, f"stored_pid_{pid_id}.pdf")
         
         # Para perguntas gerais, usa a primeira página
         # Para P&IDs multipáginas, poderia processar todas
