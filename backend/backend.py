@@ -197,12 +197,14 @@ def round_to_multiple_of_4(value: float) -> float:
     """
     Round a millimeter value to the nearest multiple of 4mm.
     Required for electrical diagrams only.
+    Uses "round half up" strategy.
     
     Examples:
-        10.0 -> 12.0
-        10.5 -> 12.0
-        14.0 -> 16.0
-        15.9 -> 16.0
+        10.0 -> 12.0 (exactly between 8 and 12, rounds up)
+        10.5 -> 12.0 (closer to 12)
+        14.0 -> 16.0 (exactly between 12 and 16, rounds up)
+        15.9 -> 16.0 (closer to 16)
+        2.0 -> 4.0 (exactly between 0 and 4, rounds up)
         
     Args:
         value: Coordinate value in millimeters
@@ -210,7 +212,9 @@ def round_to_multiple_of_4(value: float) -> float:
     Returns:
         Coordinate rounded to nearest multiple of 4mm
     """
-    return round(value / 4.0) * 4.0
+    import math
+    # Round half up: add 0.5 before dividing, then floor
+    return math.floor((value + 2.0) / 4.0) * 4.0
 
 
 def get_electrical_diagram_dimensions() -> Tuple[float, float]:
