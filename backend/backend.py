@@ -1715,30 +1715,30 @@ IMPORTANTE SOBRE COORDENADAS PARA DIAGRAMAS ELÉTRICOS:
 - Garanta que as coordenadas referenciam o centro geométrico exato do símbolo ANTES de arredondar
 
 [
-  {
+  {{
     "tag": "CB-101",
     "descricao": "Disjuntor Principal",
     "x_mm": 236.0,
     "y_mm": 568.0,
     "from": "TR-101",
     "to": "M-201"
-  },
-  {
+  }},
+  {{
     "tag": "M-201",
     "descricao": "Motor Trifásico",
     "x_mm": 444.0,
     "y_mm": 556.0,
     "from": "CB-101",
     "to": "N/A"
-  },
-  {
+  }},
+  {{
     "tag": "CT-101",
     "descricao": "Transformador de Corrente",
     "x_mm": 320.0,
     "y_mm": 568.0,
     "from": "CB-101",
     "to": "A-101"
-  }
+  }}
 ]
 
 RETORNE SOMENTE O ARRAY JSON. Não inclua texto adicional, markdown ou explicações."""
@@ -1777,22 +1777,22 @@ IMPORTANTE SOBRE COORDENADAS:
 - Exemplo: Para uma bomba centralizada em (234.5, 567.8), NÃO use (234, 567) ou (235, 568)
 
 [
-  {
+  {{
     "tag": "P-101",
     "descricao": "Bomba Centrífuga",
     "x_mm": 234.5,
     "y_mm": 567.8,
     "from": "T-101",
     "to": "E-201"
-  },
-  {
+  }},
+  {{
     "tag": "PI-9039",
     "descricao": "Indicador de Pressão",
     "x_mm": 245.2,
     "y_mm": 555.3,
     "from": "P-101",
     "to": "N/A"
-  }
+  }}
 ]
 
 RETORNE SOMENTE O ARRAY JSON. Não inclua texto adicional, markdown ou explicações."""
