@@ -23,7 +23,10 @@ def test_identical_descriptions_same_systemfullname():
         print("Skipping test...")
         return None
     
-    from system_matcher import match_system_fullname
+    from system_matcher import match_system_fullname, clear_match_cache
+    
+    # Clear cache to ensure clean test
+    clear_match_cache()
     
     # Test case: Same description, different tags
     desc = "Motor trifásico AC 7,5 cv"
@@ -87,7 +90,10 @@ def test_different_descriptions_different_systemfullname():
         print("⚠️  OPENAI_API_KEY not set. Skipping test...")
         return None
     
-    from system_matcher import match_system_fullname
+    from system_matcher import match_system_fullname, clear_match_cache
+    
+    # Clear cache to ensure clean test
+    clear_match_cache()
     
     # Test case: Different descriptions
     test_cases = [
