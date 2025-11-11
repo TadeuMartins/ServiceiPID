@@ -241,6 +241,64 @@ def cosine_similarity(a, b):
     
     return float(similarity)
 
+
+def detect_pole_count(text: str) -> str:
+    """
+    Detect the pole count from equipment description.
+    
+    Args:
+        text: Equipment description or tag
+        
+    Returns:
+        Pole count as string: "1-pole", "2-pole", "3-pole", or "" if not detected
+    """
+    if not text:
+        return ""
+    
+    text_lower = text.lower()
+    
+    # Check for explicit pole mentions
+    # Portuguese: monopolar, bipolar, tripolar, trifásico (3-phase)
+    # English: 1-pole, 2-pole, 3-pole, single-pole, three-phase
+    
+    # 3-pole indicators (most specific first)
+    three_pole_keywords = [
+        "3-pole", "3 pole", "three-pole", "three pole",
+        "tripolar", "tri-polar", "trifásico", "trifasico", "tri-fásico",
+        "three-phase", "three phase", "3-phase", "3 phase",
+        "três fases", "tres fases"
+    ]
+    
+    # 2-pole indicators
+    two_pole_keywords = [
+        "2-pole", "2 pole", "two-pole", "two pole",
+        "bipolar", "bi-polar", "bifásico", "bifasico", "bi-fásico",
+        "two-phase", "two phase", "2-phase", "2 phase"
+    ]
+    
+    # 1-pole indicators
+    one_pole_keywords = [
+        "1-pole", "1 pole", "single-pole", "single pole",
+        "monopolar", "mono-polar", "monofásico", "monofasico", "mono-fásico",
+        "single-phase", "single phase", "1-phase", "1 phase",
+        "unipolar", "uni-polar"
+    ]
+    
+    # Check in order of specificity (3, 2, 1)
+    for keyword in three_pole_keywords:
+        if keyword in text_lower:
+            return "3-pole"
+    
+    for keyword in two_pole_keywords:
+        if keyword in text_lower:
+            return "2-pole"
+    
+    for keyword in one_pole_keywords:
+        if keyword in text_lower:
+            return "1-pole"
+    
+    return ""
+
 # --- Matcher principal ---
 def match_system_fullname(tag: str, descricao: str, tipo: str = "", diagram_type: str = "pid", diagram_subtype: str = "") -> dict:
     """
@@ -260,15 +318,34 @@ def match_system_fullname(tag: str, descricao: str, tipo: str = "", diagram_type
         # Initialize appropriate reference data based on diagram type
         if diagram_type.lower() == "electrical":
             _initialize_electrical()
-            df_ref = df_ref_electrical
+            df_ref = df_ref_electrical.copy()  # Use copy to avoid modifying global
             ref_embeddings = ref_embeddings_electrical
+            ref_texts = ref_texts_electrical
             diagram_label = "Electrical"
             
-            # Add subtype to query for better matching
+            # Detect pole count from description for electrical diagrams
+            detected_pole = detect_pole_count(f"{tag} {descricao}")
+            
+            # Filter reference data by pole count if detected
+            if detected_pole:
+                # Find indices where reference description contains the detected pole count
+                pole_mask = df_ref['Descricao'].fillna('').str.contains(detected_pole, case=False, regex=False)
+                
+                # If we have matches with the detected pole count, filter to those
+                if pole_mask.sum() > 0:
+                    filtered_indices = df_ref[pole_mask].index.tolist()
+                    df_ref = df_ref[pole_mask].reset_index(drop=True)
+                    ref_embeddings = np.array([ref_embeddings_electrical[i] for i in filtered_indices])
+                    # Note: we don't need ref_texts for the filtered set as we use df_ref directly
+            
+            # Add subtype and pole info to query for better matching
+            query_parts = []
             if diagram_subtype:
-                query_text = f"{diagram_subtype} {tipo} {tag} {descricao}".strip()
-            else:
-                query_text = f"{tipo} {tag} {descricao}".strip()
+                query_parts.append(diagram_subtype)
+            if detected_pole:
+                query_parts.append(detected_pole)
+            query_parts.extend([tipo, tag, descricao])
+            query_text = " ".join(query_parts).strip()
         else:
             # Default to P&ID
             _initialize_pid()
