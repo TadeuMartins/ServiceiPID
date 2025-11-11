@@ -1686,8 +1686,14 @@ C. TIPO DE DIAGRAMA ELÉTRICO:
 
 4. DESCRIÇÕES (nomenclatura elétrica):
    - Use terminologia técnica precisa para componentes elétricos
-   - Exemplos: "Disjuntor Principal", "Motor Trifásico", "Transformador de Potência", "Relé de Sobrecorrente"
-   - Especifique tipo quando visível: "Disjuntor a Vácuo", "Motor AC Assíncrono", "Transformador Abaixador"
+   - **CRÍTICO - SEMPRE INCLUA O NÚMERO DE POLOS**: Para equipamentos elétricos, SEMPRE especifique se é 1-pole, 2-pole ou 3-pole (ou monopolar, bipolar, tripolar / monofásico, bifásico, trifásico)
+   - Exemplos CORRETOS: "Disjuntor trifásico", "Motor trifásico", "Disjuntor monopolar", "Contator trifásico", "Fusível monopolar"
+   - Exemplos INCORRETOS: "Disjuntor Principal" (falta informação de polos), "Motor" (falta informação de fases)
+   - Se o número de polos/fases não for visível no símbolo, infira baseado no tipo de diagrama:
+     * Em diagramas MULTIFILAR com 3 fases visíveis: use "trifásico" ou "3-pole"
+     * Em diagramas UNIFILAR de distribuição: geralmente equipamentos são trifásicos
+     * Para circuitos residenciais/pequenos: podem ser monofásicos (1-pole)
+   - Especifique tipo adicional quando visível: "Disjuntor trifásico a vácuo", "Motor trifásico AC assíncrono", "Transformador trifásico abaixador"
 
 5. CONEXÕES ELÉTRICAS (from/to):
    - Identifique fluxo de potência ou controle: componente de origem → componente de destino
@@ -1717,7 +1723,7 @@ IMPORTANTE SOBRE COORDENADAS PARA DIAGRAMAS ELÉTRICOS:
 [
   {{
     "tag": "CB-101",
-    "descricao": "Disjuntor Principal",
+    "descricao": "Disjuntor trifásico principal",
     "x_mm": 236.0,
     "y_mm": 568.0,
     "from": "TR-101",
@@ -1725,7 +1731,7 @@ IMPORTANTE SOBRE COORDENADAS PARA DIAGRAMAS ELÉTRICOS:
   }},
   {{
     "tag": "M-201",
-    "descricao": "Motor Trifásico",
+    "descricao": "Motor trifásico",
     "x_mm": 444.0,
     "y_mm": 556.0,
     "from": "CB-101",
@@ -1733,7 +1739,7 @@ IMPORTANTE SOBRE COORDENADAS PARA DIAGRAMAS ELÉTRICOS:
   }},
   {{
     "tag": "CT-101",
-    "descricao": "Transformador de Corrente",
+    "descricao": "Transformador de corrente trifásico",
     "x_mm": 320.0,
     "y_mm": 568.0,
     "from": "CB-101",
