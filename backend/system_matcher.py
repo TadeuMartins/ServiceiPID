@@ -15,6 +15,7 @@ Enhanced features for electrical diagrams:
 - Prevents incorrect matches (e.g., "Disjuntor trifásico" won't match 1-pole equipment)
 """
 import os
+import re
 import httpx, certifi
 import pandas as pd
 import numpy as np
@@ -433,8 +434,25 @@ def match_system_fullname(tag: str, descricao: str, tipo: str = "", diagram_type
             type_mask = None
             
             if detected_pole:
-                # Find indices where reference description contains the detected pole count
-                pole_mask = df_ref['Descricao'].fillna('').str.contains(detected_pole, case=False, regex=False)
+                # Build pole mask that handles both terminologies:
+                # - Switches/breakers use "3-pole" terminology
+                # - Motors use "three-phase" or "3-phase" terminology
+                # So we need to search for both patterns
+                pole_patterns = []
+                
+                if detected_pole == "3-pole":
+                    # For 3-pole, also search for "three-phase" and "3-phase"
+                    pole_patterns = ["3-pole", "three-phase", "3-phase", "three phase", "3 phase"]
+                elif detected_pole == "2-pole":
+                    pole_patterns = ["2-pole", "two-phase", "2-phase", "two phase", "2 phase"]
+                elif detected_pole == "1-pole":
+                    pole_patterns = ["1-pole", "single-phase", "1-phase", "single phase", "1 phase"]
+                else:
+                    pole_patterns = [detected_pole]
+                
+                # Create a combined regex pattern for all pole variants
+                pole_pattern = '|'.join([re.escape(p) for p in pole_patterns])
+                pole_mask = df_ref['Descricao'].fillna('').str.contains(pole_pattern, case=False, regex=True)
             
             if equipment_types:
                 # Build a mask for equipment types

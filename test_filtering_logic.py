@@ -65,7 +65,22 @@ def test_filtering_logic():
         type_mask = None
         
         if detected_pole:
-            pole_mask = df_filtered['Descricao'].fillna('').str.contains(detected_pole, case=False, regex=False)
+            # Build pole mask that handles both terminologies
+            pole_patterns = []
+            
+            if detected_pole == "3-pole":
+                pole_patterns = ["3-pole", "three-phase", "3-phase", "three phase", "3 phase"]
+            elif detected_pole == "2-pole":
+                pole_patterns = ["2-pole", "two-phase", "2-phase", "two phase", "2 phase"]
+            elif detected_pole == "1-pole":
+                pole_patterns = ["1-pole", "single-phase", "1-phase", "single phase", "1 phase"]
+            else:
+                pole_patterns = [detected_pole]
+            
+            # Create a combined regex pattern
+            import re
+            pole_pattern = '|'.join([re.escape(p) for p in pole_patterns])
+            pole_mask = df_filtered['Descricao'].fillna('').str.contains(pole_pattern, case=False, regex=True)
             print(f"  Pole matches: {pole_mask.sum()} entries")
         
         if equipment_types:
