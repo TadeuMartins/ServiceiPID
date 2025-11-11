@@ -800,7 +800,8 @@ def dist_mm(a: Tuple[float, float], b: Tuple[float, float]) -> float:
 
 
 def dedup_items(items: List[Dict[str, Any]], page_num: int, tol_mm: float = 10.0, 
-                use_dynamic_tolerance: bool = True, log_metadata: bool = False) -> List[Dict[str, Any]]:
+                use_dynamic_tolerance: bool = True, log_metadata: bool = False, 
+                is_electrical: bool = False) -> List[Dict[str, Any]]:
     """
     Remove duplicatas com base em TAG e proximidade espacial.
     
@@ -810,6 +811,7 @@ def dedup_items(items: List[Dict[str, Any]], page_num: int, tol_mm: float = 10.0
         tol_mm: Base tolerance in mm
         use_dynamic_tolerance: Use dynamic tolerance based on symbol size
         log_metadata: Log deduplication metadata for auditing
+        is_electrical: If True, applies stricter deduplication for electrical diagrams
     
     Estratégia:
     1. Normaliza todos os campos
@@ -821,6 +823,10 @@ def dedup_items(items: List[Dict[str, Any]], page_num: int, tol_mm: float = 10.0
     
     IMPORTANTE: Itens com TAGs diferentes NÃO são considerados duplicatas,
     mesmo se estiverem próximos espacialmente.
+    
+    Para diagramas elétricos (is_electrical=True):
+    - Aplica deduplicação mais rigorosa para coordenadas arredondadas
+    - Considera duplicatas itens com mesma TAG e coordenadas exatas (distance=0)
     """
     # Normaliza todos os itens primeiro
     for it in items:
@@ -862,10 +868,25 @@ def dedup_items(items: List[Dict[str, Any]], page_num: int, tol_mm: float = 10.0
                 # Verifica se está próximo de alguma posição existente com MESMO TAG
                 for existing_pos in seen_tags[tag_key]:
                     distance = dist_mm(pos, existing_pos)
-                    if distance <= item_tolerance:
-                        is_duplicate = True
-                        duplicate_reason = f"Same tag '{tag}' within {distance:.1f}mm (tol={item_tolerance:.1f}mm)"
-                        break
+                    
+                    # Para diagramas elétricos, usa lógica mais rigorosa
+                    if is_electrical:
+                        # Coordenadas exatas (arredondadas para múltiplos de 4mm) = duplicata
+                        if distance == 0.0:
+                            is_duplicate = True
+                            duplicate_reason = f"Electrical: Same tag '{tag}' at exact same position (0.0mm)"
+                            break
+                        # Também considera muito próximo (dentro de tolerância)
+                        elif distance <= item_tolerance:
+                            is_duplicate = True
+                            duplicate_reason = f"Electrical: Same tag '{tag}' within {distance:.1f}mm (tol={item_tolerance:.1f}mm)"
+                            break
+                    else:
+                        # Lógica normal para P&ID
+                        if distance <= item_tolerance:
+                            is_duplicate = True
+                            duplicate_reason = f"Same tag '{tag}' within {distance:.1f}mm (tol={item_tolerance:.1f}mm)"
+                            break
                 
                 # Se não está próximo de nenhuma posição existente com mesmo TAG,
                 # pode ser uma segunda ocorrência do mesmo equipamento (ex: P-101A e P-101B)
@@ -1686,8 +1707,14 @@ C. TIPO DE DIAGRAMA ELÉTRICO:
 
 4. DESCRIÇÕES (nomenclatura elétrica):
    - Use terminologia técnica precisa para componentes elétricos
-   - Exemplos: "Disjuntor Principal", "Motor Trifásico", "Transformador de Potência", "Relé de Sobrecorrente"
-   - Especifique tipo quando visível: "Disjuntor a Vácuo", "Motor AC Assíncrono", "Transformador Abaixador"
+   - **CRÍTICO - SEMPRE INCLUA O NÚMERO DE POLOS**: Para equipamentos elétricos, SEMPRE especifique se é 1-pole, 2-pole ou 3-pole (ou monopolar, bipolar, tripolar / monofásico, bifásico, trifásico)
+   - Exemplos CORRETOS: "Disjuntor trifásico", "Motor trifásico", "Disjuntor monopolar", "Contator trifásico", "Fusível monopolar"
+   - Exemplos INCORRETOS: "Disjuntor Principal" (falta informação de polos), "Motor" (falta informação de fases)
+   - Se o número de polos/fases não for visível no símbolo, infira baseado no tipo de diagrama:
+     * Em diagramas MULTIFILAR com 3 fases visíveis: use "trifásico" ou "3-pole"
+     * Em diagramas UNIFILAR de distribuição: geralmente equipamentos são trifásicos
+     * Para circuitos residenciais/pequenos: podem ser monofásicos (1-pole)
+   - Especifique tipo adicional quando visível: "Disjuntor trifásico a vácuo", "Motor trifásico AC assíncrono", "Transformador trifásico abaixador"
 
 5. CONEXÕES ELÉTRICAS (from/to):
    - Identifique fluxo de potência ou controle: componente de origem → componente de destino
@@ -1717,7 +1744,7 @@ IMPORTANTE SOBRE COORDENADAS PARA DIAGRAMAS ELÉTRICOS:
 [
   {{
     "tag": "CB-101",
-    "descricao": "Disjuntor Principal",
+    "descricao": "Disjuntor trifásico principal",
     "x_mm": 236.0,
     "y_mm": 568.0,
     "from": "TR-101",
@@ -1725,7 +1752,7 @@ IMPORTANTE SOBRE COORDENADAS PARA DIAGRAMAS ELÉTRICOS:
   }},
   {{
     "tag": "M-201",
-    "descricao": "Motor Trifásico",
+    "descricao": "Motor trifásico",
     "x_mm": 444.0,
     "y_mm": 556.0,
     "from": "CB-101",
@@ -1733,7 +1760,7 @@ IMPORTANTE SOBRE COORDENADAS PARA DIAGRAMAS ELÉTRICOS:
   }},
   {{
     "tag": "CT-101",
-    "descricao": "Transformador de Corrente",
+    "descricao": "Transformador de corrente trifásico",
     "x_mm": 320.0,
     "y_mm": 568.0,
     "from": "CB-101",
@@ -2144,7 +2171,13 @@ async def analyze_pdf(
                 log_to_front(f"   ✅ Refinados: {refined_count}/{len(combined)} itens (offset médio: {avg_offset:.2f}mm)")
 
         unique = dedup_items(combined, page_num=page_num, tol_mm=tol_mm, 
-                            use_dynamic_tolerance=use_dynamic_tolerance, log_metadata=False)
+                            use_dynamic_tolerance=use_dynamic_tolerance, log_metadata=False,
+                            is_electrical=(diagram_type.lower() == "electrical"))
+        
+        duplicates_removed = len(combined) - len(unique)
+        if duplicates_removed > 0:
+            log_to_front(f"🔄 Removidos {duplicates_removed} duplicados de {len(combined)} itens")
+        
         log_to_front(f"📄 Página {page_num} | Global: {len(global_list)} | Quadrants: {len(quad_items)} | Únicos: {len(unique)}")
 
         all_pages.append({

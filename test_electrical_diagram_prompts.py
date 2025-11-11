@@ -32,7 +32,7 @@ def test_electrical_analysis_prompt():
         ("M-201", "Electrical tag example (motor)"),
         ("TR-301", "Electrical tag example (transformer)"),
         ("Disjuntor Principal", "Electrical equipment description"),
-        ("Motor Trifásico", "Motor description"),
+        ("Motor trifásico", "Motor description"),
         ("CONEXÕES ELÉTRICAS", "Electrical connections (not process)"),
         ("componente de origem → componente de destino", "Electrical component flow"),
         ("símbolos elétricos visíveis", "Electrical symbols completeness"),
@@ -102,7 +102,7 @@ def test_pid_analysis_prompt():
         ("CONEXÕES ELÉTRICAS", "Electrical connections should NOT be in P&ID prompt"),
         ("nomenclatura elétrica", "Electrical nomenclature should NOT be in P&ID prompt"),
         ("Disjuntor Principal", "Circuit breaker should NOT be in P&ID prompt"),
-        ("Motor Trifásico", "Motor description should NOT be in P&ID prompt"),
+        ("Motor trifásico", "Motor description should NOT be in P&ID prompt"),
         ("CB-101", "Circuit breaker tag should NOT be in P&ID prompt"),
     ]
     
