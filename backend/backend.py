@@ -2013,7 +2013,10 @@ async def analyze_pdf(
 
         log_to_front(f"🌐 Global → itens: {len(global_list)}")
 
-        if grid > 1:
+        # Skip quadrant processing for electrical diagrams to avoid duplicates
+        # Electrical diagrams are typically simpler and smaller (A3 vs A0)
+        # and can be fully analyzed in global mode
+        if grid > 1 and diagram_type.lower() != "electrical":
             # Use new overlapping quadrants if enabled
             if use_overlap:
                 log_to_front(f"📊 Gerando quadrantes com sobreposição de 50%...")
@@ -2026,6 +2029,8 @@ async def analyze_pdf(
             results = await asyncio.gather(*tasks)
             for r in results:
                 quad_items.extend(r)
+        elif diagram_type.lower() == "electrical":
+            log_to_front(f"⚡ Modo elétrico: usando apenas análise global (sem quadrantes) para evitar duplicatas")
 
         raw_items = (global_list or []) + (quad_items or [])
         combined = []
@@ -2283,7 +2288,7 @@ TECHNICAL SPECIFICATIONS:
 - Dimensions: {width_mm} mm (width/X) x {height_mm} mm (height/Y)
 - Coordinate system: X increases left to right, Y increases top to bottom
 - Origin: Top left corner is point (0, 0)
-- Layout: {"Power flow from source (left) to loads (right)" if is_electrical else "Process flow from left (inlet) to right (outlet)"}
+- Layout: {"VERTICAL - Power flow from source (TOP) to loads (BOTTOM)" if is_electrical else "Process flow from left (inlet) to right (outlet)"}
 - Compatibility: COMOS (Siemens) - absolute coordinates
 """
     
@@ -2337,6 +2342,59 @@ TYPICAL ELECTRICAL DIAGRAM ELEMENTS - MAIN COMPONENTS:
    - Soft-starters: SS-101
    - Inverters/Converters: INV-101, CONV-101
    - Power factor correction capacitors: CAP-101
+
+SPATIAL DISTRIBUTION AND LAYOUT:
+
+CRITICAL: Electrical diagrams should have components arranged VERTICALLY (top to bottom),
+not horizontally. Power flows from top (source) to bottom (loads).
+
+1. Y Coordinates (vertical - MAIN AXIS):
+   - Power source zone (top): Y = 20-60 mm
+     * Main incoming supply, transformers, main breakers
+   - Distribution zone (upper-middle): Y = 60-120 mm
+     * Switchboards, MCCs, distribution panels
+   - Control/Protection zone (middle): Y = 120-180 mm
+     * Contactors, relays, protection devices, control circuits
+   - Load zone (lower): Y = 180-240 mm
+     * Motors, final equipment, outputs
+   - Bottom margin: leave ~20-40 mm from Y=297mm
+   
+2. X Coordinates (horizontal - SECONDARY AXIS):
+   - Left margin: start at X = 40-60 mm
+   - Main power circuit: X = 60-140 mm (left side)
+   - Control circuit: X = 180-260 mm (middle)
+   - Instrumentation/meters: X = 300-380 mm (right side)
+   - Right margin: leave ~20-40 mm from X=420mm
+   - For multiple parallel circuits: space horizontally 60-80mm apart
+
+3. Spacing:
+   - Between main components (vertical): minimum 40-60 mm
+   - Between control elements: minimum 20-30 mm
+   - Between parallel circuits (horizontal): minimum 60-80 mm
+   - Avoid overlaps
+
+**CRITICAL RULE FOR ELECTRICAL DIAGRAM COORDINATES:**
+- Coordinates (x_mm, y_mm) must ALWAYS reference the CENTER/MIDDLE of the component
+- Coordinates MUST be multiples of 4mm (e.g., 0.0, 4.0, 8.0, 12.0, 16.0, 20.0, 24.0, etc.)
+- VERTICAL arrangement is MANDATORY - components flow from top to bottom
+- Y coordinate should increase as power flows from source to load
+- Main circuit on left, control in middle, instrumentation on right
+
+ELECTRICAL CONNECTIONS (from/to):
+- Define electrical power/control flow
+- "from": source component (upstream in power flow)
+- "to": destination component (downstream in power flow)
+- Use TAGs for references
+- If terminal point, use "N/A"
+- Power flows TOP TO BOTTOM in the diagram
+
+COMPLETENESS AND DETAIL:
+- Generate a COMPLETE electrical diagram with ALL necessary components
+- Include ALL protection, control, and monitoring instrumentation
+- Do not omit: protection relays, meters, control circuits
+- Include safety elements: circuit breakers, fuses, grounding
+- Add proper instrumentation: ammeters, voltmeters, power meters
+- Consider necessary control circuits and interlocking
 """
     else:
         # Original P&ID equipment list
@@ -2504,61 +2562,63 @@ COORDINATE PRECISION REQUIREMENTS:"""
     # Add diagram-type-specific examples
     if is_electrical:
         prompt += """
-EXAMPLE OUTPUT FOR ELECTRICAL DIAGRAM (Star-Delta Starter):
+EXAMPLE OUTPUT FOR ELECTRICAL DIAGRAM (Star-Delta Starter - VERTICAL LAYOUT):
+
+NOTE: Components are arranged VERTICALLY (top to bottom) following power flow.
 
 [
   {
     "tag": "CB-101",
     "descricao": "Main Circuit Breaker",
-    "x_mm": 152.0,
-    "y_mm": 148.0,
+    "x_mm": 100.0,
+    "y_mm": 40.0,
     "from": "N/A",
     "to": "C-101"
   },
   {
     "tag": "C-101",
     "descricao": "Main Contactor",
-    "x_mm": 252.0,
-    "y_mm": 148.0,
+    "x_mm": 100.0,
+    "y_mm": 100.0,
     "from": "CB-101",
     "to": "C-102"
   },
   {
     "tag": "C-102",
     "descricao": "Star Contactor",
-    "x_mm": 352.0,
-    "y_mm": 100.0,
+    "x_mm": 80.0,
+    "y_mm": 160.0,
     "from": "C-101",
     "to": "M-101"
   },
   {
     "tag": "C-103",
     "descricao": "Delta Contactor",
-    "x_mm": 352.0,
-    "y_mm": 196.0,
+    "x_mm": 120.0,
+    "y_mm": 160.0,
     "from": "C-101",
+    "to": "M-101"
+  },
+  {
+    "tag": "REL-101",
+    "descricao": "Overload Relay",
+    "x_mm": 100.0,
+    "y_mm": 200.0,
+    "from": "C-102",
     "to": "M-101"
   },
   {
     "tag": "M-101",
     "descricao": "Three-Phase Motor",
-    "x_mm": 400.0,
-    "y_mm": 148.0,
-    "from": "C-102",
+    "x_mm": 100.0,
+    "y_mm": 240.0,
+    "from": "REL-101",
     "to": "N/A"
-  },
-  {
-    "tag": "REL-101",
-    "descricao": "Overload Relay",
-    "x_mm": 376.0,
-    "y_mm": 148.0,
-    "from": "C-101",
-    "to": "M-101"
   },
   {
     "tag": "A-101",
     "descricao": "Ammeter",
-    "x_mm": 300.0,
+    "x_mm": 200.0,
     "y_mm": 100.0,
     "from": "C-101",
     "to": "N/A"
