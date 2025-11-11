@@ -59,6 +59,11 @@ df_ref_electrical = None
 ref_embeddings_electrical = None
 ref_texts_electrical = None
 
+# Match result cache to ensure identical descriptions get the same SystemFullName
+# Key: (description, tipo, diagram_type, diagram_subtype)
+# Value: match result dictionary
+match_cache = {}
+
 def _initialize_client():
     """Initialize OpenAI client."""
     global client
@@ -400,10 +405,26 @@ def extract_equipment_type_keywords(text: str) -> list:
     
     return found_types
 
+
+def clear_match_cache():
+    """
+    Clear the match result cache.
+    
+    This should be called when reference data changes or for testing purposes.
+    """
+    global match_cache
+    match_cache = {}
+    print("🔄 Match cache cleared")
+
+
 # --- Matcher principal ---
 def match_system_fullname(tag: str, descricao: str, tipo: str = "", diagram_type: str = "pid", diagram_subtype: str = "") -> dict:
     """
     Match system full name based on tag, description, and type.
+    
+    Uses caching to ensure that identical descriptions always get the same SystemFullName,
+    based on the first match found (which has the highest confidence for that description).
+    This prevents duplicate equipment from getting different SystemFullNames.
     
     Args:
         tag: Equipment tag
@@ -415,6 +436,19 @@ def match_system_fullname(tag: str, descricao: str, tipo: str = "", diagram_type
     Returns:
         Dictionary with SystemFullName, confidence, and reference data
     """
+    global match_cache
+    
+    # Create cache key based on description, tipo, diagram_type, and diagram_subtype
+    # Note: tag is NOT included in the cache key, because we want identical descriptions
+    # with different tags to get the same SystemFullName
+    cache_key = (descricao.strip().lower(), tipo.strip().lower(), diagram_type.lower(), diagram_subtype.lower())
+    
+    # Check if we have a cached result for this exact description
+    if cache_key in match_cache:
+        # Return cached result (ensuring identical descriptions get the same SystemFullName)
+        cached_result = match_cache[cache_key].copy()
+        return cached_result
+    
     try:
         # Initialize appropriate reference data based on diagram type
         if diagram_type.lower() == "electrical":
@@ -566,6 +600,9 @@ def match_system_fullname(tag: str, descricao: str, tipo: str = "", diagram_type
         # Add subtype to result if it's an electrical diagram
         if diagram_type.lower() == "electrical" and diagram_subtype:
             result["diagram_subtype"] = diagram_subtype
+        
+        # Cache the result for future identical descriptions
+        match_cache[cache_key] = result.copy()
             
         return result
     except Exception as e:
@@ -580,6 +617,9 @@ def match_system_fullname(tag: str, descricao: str, tipo: str = "", diagram_type
         
         if diagram_type.lower() == "electrical" and diagram_subtype:
             result["diagram_subtype"] = diagram_subtype
+        
+        # Cache the error result as well to avoid repeated failures
+        match_cache[cache_key] = result.copy()
             
         return result
 
