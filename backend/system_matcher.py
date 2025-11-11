@@ -318,12 +318,14 @@ def detect_pole_count(text: str) -> str:
 def extract_equipment_type_keywords(text: str) -> list:
     """
     Extract equipment type keywords from description to help with filtering.
+    Uses priority-based matching to avoid false positives (e.g., "motor protection switch" 
+    should match "protection-switch" not "motor").
     
     Args:
         text: Equipment description
         
     Returns:
-        List of equipment type keywords found
+        List of equipment type keywords found (ordered by priority/specificity)
     """
     if not text:
         return []
@@ -331,22 +333,69 @@ def extract_equipment_type_keywords(text: str) -> list:
     text_lower = text.lower()
     
     # Equipment type keywords (Portuguese and English)
-    equipment_types = {
-        'contactor': ['contator', 'contactor'],
-        'circuit-breaker': ['disjuntor', 'circuit-breaker', 'circuit breaker'],
-        'fuse': ['fusível', 'fusivel', 'fuse'],
-        'relay': ['relé', 'rele', 'relay'],
-        'motor': ['motor'],
-        'transformer': ['transformador', 'transformer'],
-        'switch': ['chave', 'switch', 'interruptor'],
-    }
+    # Order matters: more specific types first to avoid false matches
+    # e.g., check for "motor protection switch" before checking for "motor"
+    equipment_types = [
+        # Protection and control devices (check these first as they're compound terms)
+        ('protection-switch', ['motor protection switch', 'protection switch', 'disjuntor-motor', 'disjuntor de proteção']),
+        ('motor-starter', ['motor starter', 'partida', 'starter']),
+        
+        # Drives and converters
+        ('drive', ['vfd', 'inversor', 'drive', 'soft-starter', 'soft starter', 'acionamento eletrônico', 'acionamento eletronico', 'frequency converter']),
+        
+        # Cables and connections
+        ('cable', ['cabo', 'cable', 'condutor', 'conductor']),
+        ('connection-point', ['ponto de conexão', 'ponto de conexao', 'connection point', 'terminal point']),
+        
+        # Motors (check after motor-related compound terms)
+        ('motor', ['motor elétrico', 'motor eletrico', 'three-phase motor', 'single-phase motor', 'ac motor', 'dc motor']),
+        
+        # Other equipment
+        ('contactor', ['contator', 'contactor']),
+        ('circuit-breaker', ['disjuntor', 'circuit-breaker', 'circuit breaker']),
+        ('fuse', ['fusível', 'fusivel', 'fuse']),
+        ('relay', ['relé', 'rele', 'relay']),
+        ('transformer', ['transformador', 'transformer']),
+        ('switch', ['chave', 'switch', 'interruptor']),
+        ('generator', ['gerador', 'generator']),
+        ('capacitor', ['capacitor', 'condensador']),
+        ('resistor', ['resistor', 'resistência', 'resistencia']),
+    ]
     
     found_types = []
-    for eq_type, keywords in equipment_types.items():
+    matched_positions = []  # Track where matches occur to avoid overlaps
+    
+    # First pass: find all specific matches
+    for eq_type, keywords in equipment_types:
         for keyword in keywords:
-            if keyword in text_lower:
-                found_types.append(eq_type)
-                break  # Only add each type once
+            pos = text_lower.find(keyword)
+            if pos >= 0:
+                # Check if this position overlaps with an already matched region
+                overlaps = False
+                keyword_end = pos + len(keyword)
+                for matched_start, matched_end in matched_positions:
+                    if not (keyword_end <= matched_start or pos >= matched_end):
+                        overlaps = True
+                        break
+                
+                if not overlaps:
+                    found_types.append(eq_type)
+                    matched_positions.append((pos, keyword_end))
+                    break  # Only add each type once
+    
+    # Special case: if no specific motor type found but "motor" appears standalone
+    # (not part of "motor protection" or "motor starter"), add generic "motor"
+    if 'motor' not in found_types and 'protection-switch' not in found_types and 'motor-starter' not in found_types:
+        if 'motor' in text_lower:
+            # Check it's not part of a compound term we already matched
+            motor_pos = text_lower.find('motor')
+            overlaps = False
+            for matched_start, matched_end in matched_positions:
+                if not (motor_pos + 5 <= matched_start or motor_pos >= matched_end):
+                    overlaps = True
+                    break
+            if not overlaps:
+                found_types.append('motor')
     
     return found_types
 
@@ -378,39 +427,96 @@ def match_system_fullname(tag: str, descricao: str, tipo: str = "", diagram_type
             detected_pole = detect_pole_count(f"{tag} {descricao}")
             equipment_types = extract_equipment_type_keywords(f"{tag} {descricao}")
             
-            # Filter reference data by pole count if detected
+            # Apply smart filtering based on detected characteristics
+            # Priority: equipment type + pole count > equipment type only > pole count only > no filter
+            pole_mask = None
+            type_mask = None
+            
             if detected_pole:
                 # Find indices where reference description contains the detected pole count
                 pole_mask = df_ref['Descricao'].fillna('').str.contains(detected_pole, case=False, regex=False)
+            
+            if equipment_types:
+                # Build a mask for equipment types
+                # Convert equipment_types to patterns that match the reference descriptions
+                type_patterns = []
+                for eq_type in equipment_types:
+                    # Map our equipment type keywords to patterns that will match reference descriptions
+                    if eq_type == 'motor':
+                        # Negative lookahead to exclude "motor protection" and "motor starter"
+                        type_patterns.append(r'(?!.*motor\s+(protection|starter)).*\bmotor\b')
+                    elif eq_type == 'protection-switch':
+                        type_patterns.append(r'protection.*switch|motor.*protection')
+                    elif eq_type == 'motor-starter':
+                        type_patterns.append(r'motor.*starter|starter')
+                    elif eq_type == 'drive':
+                        type_patterns.append(r'drive|converter|inverter|frequency')
+                    elif eq_type == 'cable':
+                        type_patterns.append(r'\bcable\b')
+                    elif eq_type == 'connection-point':
+                        type_patterns.append(r'connection|terminal|point')
+                    else:
+                        # For other types, use the type name directly
+                        type_patterns.append(eq_type.replace('-', '.*'))
                 
-                # If we have matches with the detected pole count, filter to those
-                if pole_mask.sum() > 0:
+                if type_patterns:
+                    combined_pattern = '|'.join(type_patterns)
+                    type_mask = df_ref['Descricao'].fillna('').str.contains(combined_pattern, case=False, regex=True)
+            
+            # Apply filtering based on what we detected
+            if pole_mask is not None and type_mask is not None:
+                # Try combining both filters first
+                combined_mask = pole_mask & type_mask
+                if combined_mask.sum() > 0:
+                    # Best case: we have entries matching both pole count and equipment type
+                    filtered_indices = df_ref[combined_mask].index.tolist()
+                    df_ref = df_ref[combined_mask].reset_index(drop=True)
+                    ref_embeddings = np.array([ref_embeddings_electrical[i] for i in filtered_indices])
+                elif type_mask.sum() > 0:
+                    # Prioritize equipment type over pole count if we can't match both
+                    filtered_indices = df_ref[type_mask].index.tolist()
+                    df_ref = df_ref[type_mask].reset_index(drop=True)
+                    ref_embeddings = np.array([ref_embeddings_electrical[i] for i in filtered_indices])
+                elif pole_mask.sum() > 0:
+                    # Fall back to pole count filtering
                     filtered_indices = df_ref[pole_mask].index.tolist()
                     df_ref = df_ref[pole_mask].reset_index(drop=True)
                     ref_embeddings = np.array([ref_embeddings_electrical[i] for i in filtered_indices])
-                else:
-                    # No pole-specific matches found (e.g., contactors don't have pole variants)
-                    # In this case, try filtering by equipment type instead
-                    if equipment_types:
-                        # Build a regex pattern for equipment types
-                        type_pattern = '|'.join(equipment_types)
-                        type_mask = df_ref['Descricao'].fillna('').str.contains(type_pattern, case=False, regex=True)
-                        
-                        if type_mask.sum() > 0:
-                            # Filter by equipment type
-                            filtered_indices = df_ref[type_mask].index.tolist()
-                            df_ref = df_ref[type_mask].reset_index(drop=True)
-                            ref_embeddings = np.array([ref_embeddings_electrical[i] for i in filtered_indices])
+            elif type_mask is not None and type_mask.sum() > 0:
+                # Only equipment type detected
+                filtered_indices = df_ref[type_mask].index.tolist()
+                df_ref = df_ref[type_mask].reset_index(drop=True)
+                ref_embeddings = np.array([ref_embeddings_electrical[i] for i in filtered_indices])
+            elif pole_mask is not None and pole_mask.sum() > 0:
+                # Only pole count detected
+                filtered_indices = df_ref[pole_mask].index.tolist()
+                df_ref = df_ref[pole_mask].reset_index(drop=True)
+                ref_embeddings = np.array([ref_embeddings_electrical[i] for i in filtered_indices])
             
-            # Add subtype, pole info, and equipment type to query for better matching
+            # Build query text for semantic matching
+            # Weight equipment types heavily by repeating them and placing them early
             query_parts = []
+            
+            # Add diagram subtype if available
             if diagram_subtype:
                 query_parts.append(diagram_subtype)
+            
+            # Add equipment types multiple times to increase their weight in matching
+            # This helps ensure that a "motor" matches to motors, not "motor protection switches"
+            if equipment_types:
+                # Add equipment types at the start (higher weight)
+                query_parts.extend(equipment_types)
+                # Add them again later (reinforcement)
+                query_parts.extend(equipment_types)
+            
+            # Add pole count once (less weight than equipment type)
             if detected_pole:
                 query_parts.append(detected_pole)
-            if equipment_types:
-                query_parts.extend(equipment_types)
-            query_parts.extend([tipo, tag, descricao])
+            
+            # Add the original description and type
+            query_parts.extend([tipo, descricao])
+            
+            # Don't add tag as it's often just a code without semantic meaning
             query_text = " ".join(query_parts).strip()
         else:
             # Default to P&ID
