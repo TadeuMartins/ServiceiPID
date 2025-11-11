@@ -1539,6 +1539,13 @@ EQUIPAMENTOS A IDENTIFICAR (lista não exaustiva):"""
 
     if is_electrical:
         base += """
+
+⚠️ IMPORTANTE - FOCO EM OBJETOS PRINCIPAIS:
+   - NÃO extraia cabos, linhas de potência ou barramentos como objetos separados
+   - Foque SOMENTE nos componentes principais do diagrama elétrico
+   - Cabos e barramentos devem ser DESCONSIDERADOS na extração
+   - Apenas identifique as conexões entre componentes principais (usando campos "from" e "to")
+
 1. Componentes elétricos principais:
    - Transformadores (power transformers, distribution transformers): TR-XXX, T-XXX
    - Motores elétricos (AC/DC motors, synchronous/asynchronous): M-XXX, MOT-XXX
@@ -1549,7 +1556,6 @@ EQUIPAMENTOS A IDENTIFICAR (lista não exaustiva):"""
    - Chaves seccionadoras (disconnectors): DS-XXX, SEC-XXX
    - Relés de proteção: REL-XXX, PROT-XXX
    - Contatores: C-XXX, K-XXX
-   - Barramentos (busbars): BB-XXX, BUS-XXX
 
 2. Dispositivos de proteção e controle:
    - Relés de sobrecorrente: 50/51
@@ -1568,13 +1574,7 @@ EQUIPAMENTOS A IDENTIFICAR (lista não exaustiva):"""
    - Transdutores de corrente (CTs): CT-XXX
    - Transdutores de potencial (VTs/PTs): VT-XXX, PT-XXX
 
-4. Cabos e conexões:
-   - Linhas de potência (power lines)
-   - Cabos de controle
-   - Conexões e terminais
-   - Eletrodutos e bandejas
-
-5. Outros elementos:
+4. Outros elementos:
    - Sistemas de backup/UPS
    - Baterias
    - Inversores e conversores
