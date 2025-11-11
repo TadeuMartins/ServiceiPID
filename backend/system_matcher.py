@@ -299,6 +299,42 @@ def detect_pole_count(text: str) -> str:
     
     return ""
 
+
+def extract_equipment_type_keywords(text: str) -> list:
+    """
+    Extract equipment type keywords from description to help with filtering.
+    
+    Args:
+        text: Equipment description
+        
+    Returns:
+        List of equipment type keywords found
+    """
+    if not text:
+        return []
+    
+    text_lower = text.lower()
+    
+    # Equipment type keywords (Portuguese and English)
+    equipment_types = {
+        'contactor': ['contator', 'contactor'],
+        'circuit-breaker': ['disjuntor', 'circuit-breaker', 'circuit breaker'],
+        'fuse': ['fusível', 'fusivel', 'fuse'],
+        'relay': ['relé', 'rele', 'relay'],
+        'motor': ['motor'],
+        'transformer': ['transformador', 'transformer'],
+        'switch': ['chave', 'switch', 'interruptor'],
+    }
+    
+    found_types = []
+    for eq_type, keywords in equipment_types.items():
+        for keyword in keywords:
+            if keyword in text_lower:
+                found_types.append(eq_type)
+                break  # Only add each type once
+    
+    return found_types
+
 # --- Matcher principal ---
 def match_system_fullname(tag: str, descricao: str, tipo: str = "", diagram_type: str = "pid", diagram_subtype: str = "") -> dict:
     """
@@ -323,8 +359,9 @@ def match_system_fullname(tag: str, descricao: str, tipo: str = "", diagram_type
             ref_texts = ref_texts_electrical
             diagram_label = "Electrical"
             
-            # Detect pole count from description for electrical diagrams
+            # Detect pole count and equipment type from description
             detected_pole = detect_pole_count(f"{tag} {descricao}")
+            equipment_types = extract_equipment_type_keywords(f"{tag} {descricao}")
             
             # Filter reference data by pole count if detected
             if detected_pole:
@@ -336,14 +373,28 @@ def match_system_fullname(tag: str, descricao: str, tipo: str = "", diagram_type
                     filtered_indices = df_ref[pole_mask].index.tolist()
                     df_ref = df_ref[pole_mask].reset_index(drop=True)
                     ref_embeddings = np.array([ref_embeddings_electrical[i] for i in filtered_indices])
-                    # Note: we don't need ref_texts for the filtered set as we use df_ref directly
+                else:
+                    # No pole-specific matches found (e.g., contactors don't have pole variants)
+                    # In this case, try filtering by equipment type instead
+                    if equipment_types:
+                        # Build a regex pattern for equipment types
+                        type_pattern = '|'.join(equipment_types)
+                        type_mask = df_ref['Descricao'].fillna('').str.contains(type_pattern, case=False, regex=True)
+                        
+                        if type_mask.sum() > 0:
+                            # Filter by equipment type
+                            filtered_indices = df_ref[type_mask].index.tolist()
+                            df_ref = df_ref[type_mask].reset_index(drop=True)
+                            ref_embeddings = np.array([ref_embeddings_electrical[i] for i in filtered_indices])
             
-            # Add subtype and pole info to query for better matching
+            # Add subtype, pole info, and equipment type to query for better matching
             query_parts = []
             if diagram_subtype:
                 query_parts.append(diagram_subtype)
             if detected_pole:
                 query_parts.append(detected_pole)
+            if equipment_types:
+                query_parts.extend(equipment_types)
             query_parts.extend([tipo, tag, descricao])
             query_text = " ".join(query_parts).strip()
         else:
