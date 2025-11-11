@@ -1,4 +1,19 @@
 # backend/system_matcher.py
+"""
+System matcher module for matching equipment tags and descriptions to SystemFullName.
+
+This module provides intelligent matching for both P&ID and Electrical diagrams by:
+1. Using OpenAI embeddings for semantic similarity
+2. Filtering by pole count for electrical equipment (1-pole, 2-pole, 3-pole)
+3. Filtering by equipment type when pole variants don't exist
+4. Supporting Portuguese and English descriptions
+
+Enhanced features for electrical diagrams:
+- Detects pole count from descriptions (e.g., "trifásico" -> 3-pole)
+- Filters reference database to only relevant pole counts
+- Falls back to equipment type filtering for equipment without pole variants
+- Prevents incorrect matches (e.g., "Disjuntor trifásico" won't match 1-pole equipment)
+"""
 import os
 import httpx, certifi
 import pandas as pd
