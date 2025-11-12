@@ -2146,12 +2146,15 @@ async def process_quadrant(gx, gy, rect, page, W_mm, H_mm, dpi, diagram_type="pi
 
 
 # === BEGIN ADD: ElectricalAnalyzer ===
-def run_electrical_pipeline(doc, dpi_global=220, dpi_tiles=400, tile_px=1024, overlap=0.37)->Dict[str,Any]:
+def run_electrical_pipeline(doc, dpi_global=220, dpi_tiles=400, tile_px=1024, overlap=0.37)->List[Dict[str,Any]]:
     items: List[Dict[str,Any]] = []
     cons_all: List[Conn] = []
     eps_all: List[Endpoint] = []
+    all_pages: List[Dict[str, Any]] = []
+    
     for pidx, page in enumerate(doc):
-        log_to_front(f"\n⚡ === Página {pidx+1} (Elétrico) ===")
+        page_num = pidx + 1
+        log_to_front(f"\n⚡ === Página {page_num} (Elétrico) ===")
         
         # Passada global (contexto/tag grande)
         pix = page.get_pixmap(dpi=dpi_global)
@@ -2193,11 +2196,12 @@ def run_electrical_pipeline(doc, dpi_global=220, dpi_tiles=400, tile_px=1024, ov
         cons_all, eps_all = snap_endpoints_to_tags(cons_all, eps_all, eqs)
 
         # Exporta em mm (usa points_to_mm existente via dpi_tiles -> mm)
+        page_items = []
         for e in eqs:
             # converte px->mm pelo dpi_tiles (coerente)
             x_mm = ( (e.bbox.x + e.bbox.w/2) / dpi_tiles ) * 25.4
             y_mm = ( (e.bbox.y + e.bbox.h/2) / dpi_tiles ) * 25.4
-            items.append({
+            page_items.append({
                 "pagina": e.page,
                 "tipo": e.type,
                 "tag": e.tag or "N/A",
@@ -2206,6 +2210,14 @@ def run_electrical_pipeline(doc, dpi_global=220, dpi_tiles=400, tile_px=1024, ov
                 "confidence": round(float(e.confidence),2),
                 "_src": "electrical"
             })
+        items.extend(page_items)
+        
+        # Add page to all_pages with the expected structure
+        all_pages.append({
+            "pagina": page_num,
+            "modelo": raw_model,
+            "resultado": sanitize_for_json(page_items)
+        })
 
     # Conexões simplificadas (from/to)
     connections = []
@@ -2214,11 +2226,8 @@ def run_electrical_pipeline(doc, dpi_global=220, dpi_tiles=400, tile_px=1024, ov
 
     log_to_front(f"🧩 Elétrico: consolidados={len(items)} conexões={len(connections)}")
     
-    return {
-        "items": sanitize_for_json(items),
-        "connections": sanitize_for_json(connections),
-        "unresolved_endpoints": [{"page":e.page, "x":e.point[0], "y":e.point[1]} for e in eps_all]
-    }
+    # Return in the same format as the P&ID flow
+    return all_pages
 # === END ADD ===
 
 # === BEGIN ADD: detector de tipo ===
