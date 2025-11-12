@@ -518,6 +518,16 @@ def render_quadrant_from_page(page, rect, dpi: int = 400) -> bytes:
 
 
 # === BEGIN ADD: tiler with overlap ===
+def calculate_tile_count(page, tile_px: int=1024, overlap_ratio: float=0.37, dpi:int=400):
+    """Calculate the total number of tiles that will be generated for a page."""
+    pix = page.get_pixmap(dpi=dpi)
+    img = Image.open(io.BytesIO(pix.tobytes("png"))).convert("L")
+    W, H = img.size
+    step = int(tile_px*(1.0-overlap_ratio)) or tile_px
+    y_count = len(list(range(0, max(1, H-tile_px+1), step)))
+    x_count = len(list(range(0, max(1, W-tile_px+1), step)))
+    return x_count * y_count
+
 def iter_tiles_with_overlap(page, tile_px: int=1024, overlap_ratio: float=0.37, dpi:int=400):
     pix = page.get_pixmap(dpi=dpi)
     img = Image.open(io.BytesIO(pix.tobytes("png"))).convert("L")
@@ -2168,11 +2178,13 @@ def run_electrical_pipeline(doc, dpi_global=220, dpi_tiles=400, tile_px=1024, ov
         log_to_front(f"⚡ Elétrico(Global) itens: {len(global_list)}")
 
         # Tiles com overlap (recupera símbolos pequenos e conexões)
-        log_to_front("📐 Elétrico: tiles 1024px com overlap 37%")
+        total_tiles = calculate_tile_count(page, tile_px=tile_px, overlap_ratio=overlap, dpi=dpi_tiles)
+        log_to_front(f"📐 Elétrico: tiles 1024px com overlap 37% - Total: {total_tiles} tiles")
         eqs: List[Equip] = parse_electrical_equips({"equipments": global_list}, pidx)
         tile_count = 0
         for tile,(ox,oy),(W,H), dpi in iter_tiles_with_overlap(page, tile_px=tile_px, overlap_ratio=overlap, dpi=dpi_tiles):
             tile_count += 1
+            log_to_front(f"   🔄 Processando tile {tile_count}/{total_tiles}...")
             buf=io.BytesIO(); tile.save(buf, format="PNG")
             b64 = base64.b64encode(buf.getvalue()).decode("utf-8")
             _, r = llm_call(b64, build_prompt_electrical_tile(pidx, ox, oy))
@@ -2187,7 +2199,7 @@ def run_electrical_pipeline(doc, dpi_global=220, dpi_tiles=400, tile_px=1024, ov
             c,e = parse_electrical_edges(resp_norm, pidx)
             cons_all.extend(c); eps_all.extend(e)
         
-        log_to_front(f"📐 Processados {tile_count} tiles")
+        log_to_front(f"✅ Processados {tile_count} tiles")
 
         # Deduplicação e snap
         eqs = merge_electrical_equips(eqs)
