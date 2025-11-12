@@ -65,7 +65,7 @@ class BBox:
 
 @dataclass
 class Equip:
-    type: str; tag: Optional[str]; bbox: BBox; page:int; confidence: float; partial: bool=False
+    type: str; tag: Optional[str]; bbox: BBox; page:int; confidence: float; partial: bool=False; descricao: str=""
 
 @dataclass
 class Conn:
@@ -1915,7 +1915,8 @@ def build_prompt_electrical_global(page_idx:int, wpx:int, hpx:int)->str:
     return (
         "You analyze an ELECTRICAL SCHEMATIC (single-line or multi-line). "
         "Detect high-level components and tags. Return strictly JSON: "
-        "{equipments:[{type,tag,bbox:{x,y,w,h},page,confidence,partial}]}. "
+        "{equipments:[{type,tag,descricao,bbox:{x,y,w,h},page,confidence,partial}]}. "
+        "The 'descricao' field should contain a complete Portuguese description of the equipment (e.g., 'Disjuntor trifásico', 'Motor elétrico', 'Transformador'). "
         f"All coordinates are ABSOLUTE page pixels for page={page_idx+1}, width={wpx}, height={hpx}."
     )
 
@@ -1923,8 +1924,9 @@ def build_prompt_electrical_tile(page_idx:int, ox:int, oy:int)->str:
     return (
         "ELECTRICAL SCHEMATIC TILE. Detect symbols (motors, breakers, fuses, relays, terminals) "
         "and connections (from_tag,to_tag,path,direction,confidence). "
+        "For each equipment, provide a complete Portuguese description in the 'descricao' field (e.g., 'Disjuntor monopolar', 'Contator tripolar', 'Motor trifásico'). "
         "If an object is cut by tile border, set partial=true. "
-        "Return strictly JSON: {equipments:[...], connections:[...], unresolved_endpoints:[{near,point,page}]}. "
+        "Return strictly JSON: {equipments:[{type,tag,descricao,bbox:{x,y,w,h},confidence,partial},...], connections:[...], unresolved_endpoints:[{near,point,page}]}. "
         f"Coordinates MUST be ABSOLUTE page pixels by adding offsets ox={ox}, oy={oy}; page={page_idx+1}."
     )
 # === END ADD ===
@@ -2044,7 +2046,8 @@ def parse_electrical_equips(resp: Dict[str, Any], page:int)->List[Equip]:
             bbox=BBox(x, y, w, h),
             page=page+1,
             confidence=float(e.get("confidence",0)),
-            partial=bool(e.get("partial",False))
+            partial=bool(e.get("partial",False)),
+            descricao=str(e.get("descricao", "Equipamento elétrico"))
         ))
     return out
 
@@ -2207,21 +2210,67 @@ def run_electrical_pipeline(doc, dpi_global=220, dpi_tiles=300, tile_px=1536, ov
         eps_all = dedup_endpoints(eps_all)
         cons_all, eps_all = snap_endpoints_to_tags(cons_all, eps_all, eqs)
 
-        # Exporta em mm (usa points_to_mm existente via dpi_tiles -> mm)
+        # Get page dimensions in mm
+        W_pts, H_pts = page.rect.width, page.rect.height
+        W_mm, H_mm = points_to_mm(W_pts), points_to_mm(H_pts)
+        
+        # Detect diagram subtype for better matching
+        all_descriptions = " ".join([e.descricao for e in eqs])
+        diagram_subtype = detect_electrical_diagram_subtype([{"descricao": e.descricao} for e in eqs], all_descriptions)
+        log_to_front(f"⚡ Tipo de diagrama elétrico detectado: {diagram_subtype.upper()}")
+        
+        # Exporta em mm e aplica matcher para SystemFullName
         page_items = []
         for e in eqs:
             # converte px->mm pelo dpi_tiles (coerente)
             x_mm = ( (e.bbox.x + e.bbox.w/2) / dpi_tiles ) * 25.4
             y_mm = ( (e.bbox.y + e.bbox.h/2) / dpi_tiles ) * 25.4
-            page_items.append({
-                "pagina": e.page,
-                "tipo": e.type,
+            
+            # Round coordinates to multiples of 4mm for electrical diagrams
+            x_mm = round_to_multiple_of_4(x_mm)
+            y_mm = round_to_multiple_of_4(y_mm)
+            y_mm_cad = y_mm  # For electrical diagrams, y_mm_cad is same as y_mm (no flip)
+            
+            # Build connections from/to for this equipment
+            from_tags = [c.from_tag for c in cons_all if c.to_tag == e.tag]
+            to_tags = [c.to_tag for c in cons_all if c.from_tag == e.tag]
+            from_str = ", ".join(filter(None, from_tags)) or "N/A"
+            to_str = ", ".join(filter(None, to_tags)) or "N/A"
+            
+            item = {
                 "tag": e.tag or "N/A",
-                "x_mm": round(x_mm, 1),
-                "y_mm": round(y_mm, 1),
-                "confidence": round(float(e.confidence),2),
-                "_src": "electrical"
-            })
+                "descricao": e.descricao,
+                "x_mm": x_mm,
+                "y_mm": y_mm,
+                "y_mm_cad": y_mm_cad,
+                "pagina": e.page,
+                "from": from_str,
+                "to": to_str,
+                "page_width_mm": W_mm,
+                "page_height_mm": H_mm,
+            }
+            
+            # Apply system matcher to get SystemFullName
+            try:
+                match = match_system_fullname(item["tag"], item["descricao"], e.type, "electrical", diagram_subtype)
+                item.update(match)
+                log_to_front(f"  ✓ {item['tag']}: {match.get('SystemFullName', 'N/A')}")
+            except Exception as ex:
+                log_to_front(f"  ⚠️ Matcher falhou para {item['tag']}: {ex!r}")
+                item.update({
+                    "SystemFullName": None,
+                    "Confiança": 0,
+                    "matcher_error": str(ex),
+                    "diagram_type": "Electrical"
+                })
+                if diagram_subtype:
+                    item["diagram_subtype"] = diagram_subtype
+            
+            # Add electrical-specific fields
+            item["geometric_refinement"] = None  # Not applicable for electrical (uses tile center)
+            item["modelo"] = raw_model
+            
+            page_items.append(item)
         items.extend(page_items)
         
         # Add page to all_pages with the expected structure
