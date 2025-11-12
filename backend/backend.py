@@ -1927,7 +1927,7 @@ def build_prompt_electrical_tile(page_idx:int, ox:int, oy:int)->str:
         "For each equipment, provide a complete Portuguese description in the 'descricao' field (e.g., 'Disjuntor monopolar', 'Contator tripolar', 'Motor trifásico'). "
         "If an object is cut by tile border, set partial=true. "
         "Return strictly JSON: {equipments:[{type,tag,descricao,bbox:{x,y,w,h},confidence,partial},...], connections:[...], unresolved_endpoints:[{near,point,page}]}. "
-        f"Coordinates MUST be ABSOLUTE page pixels by adding offsets ox={ox}, oy={oy}; page={page_idx+1}."
+        f"Coordinates are TILE-LOCAL pixels (top-left of this tile is 0,0). Tile offset will be added automatically. Page={page_idx+1}."
     )
 # === END ADD ===
 
@@ -2021,7 +2021,19 @@ def llm_call(image_b64: str, prompt: str, prefer_model: str = PRIMARY_MODEL):
 
 
 # === BEGIN ADD: parsers ===
-def parse_electrical_equips(resp: Dict[str, Any], page:int)->List[Equip]:
+def parse_electrical_equips(resp: Dict[str, Any], page:int, ox:int=0, oy:int=0)->List[Equip]:
+    """
+    Parse equipment from LLM response.
+    
+    Args:
+        resp: Response dictionary with 'equipments' list
+        page: Page index (0-based)
+        ox: Tile offset X in pixels (default 0 for global analysis)
+        oy: Tile offset Y in pixels (default 0 for global analysis)
+    
+    Returns:
+        List of Equip objects with coordinates adjusted by tile offset
+    """
     out=[]
     for e in (resp or {}).get("equipments",[]) or []:
         b=e.get("bbox",{}) or {}
@@ -2040,6 +2052,10 @@ def parse_electrical_equips(resp: Dict[str, Any], page:int)->List[Equip]:
             w = float(b.get("w", 0))
             h = float(b.get("h", 0))
         
+        # Add tile offset to convert from tile-local to absolute page coordinates
+        x += ox
+        y += oy
+        
         out.append(Equip(
             type=str(e.get("type","UNKNOWN")),
             tag=(e.get("tag") or None),
@@ -2051,14 +2067,28 @@ def parse_electrical_equips(resp: Dict[str, Any], page:int)->List[Equip]:
         ))
     return out
 
-def parse_electrical_edges(resp: Dict[str, Any], page:int)->Tuple[List[Conn], List[Endpoint]]:
+def parse_electrical_edges(resp: Dict[str, Any], page:int, ox:int=0, oy:int=0)->Tuple[List[Conn], List[Endpoint]]:
+    """
+    Parse connections and endpoints from LLM response.
+    
+    Args:
+        resp: Response dictionary with 'connections' and 'unresolved_endpoints'
+        page: Page index (0-based)
+        ox: Tile offset X in pixels (default 0 for global analysis)
+        oy: Tile offset Y in pixels (default 0 for global analysis)
+    
+    Returns:
+        Tuple of (connections list, endpoints list) with coordinates adjusted by tile offset
+    """
     cons=[]; eps=[]
     for c in (resp or {}).get("connections",[]) or []:
-        path=[tuple(map(float,pt)) for pt in (c.get("path") or [])]
+        # Add tile offset to each point in the path
+        path=[(float(pt[0]) + ox, float(pt[1]) + oy) for pt in (c.get("path") or [])]
         cons.append(Conn(c.get("from_tag"), c.get("to_tag"), path, str(c.get("direction","undirected")), float(c.get("confidence",0))))
     for e in (resp or {}).get("unresolved_endpoints",[]) or []:
         pt=e.get("point") or [0,0]
-        eps.append(Endpoint(e.get("near"), (float(pt[0]), float(pt[1])), page+1))
+        # Add tile offset to endpoint
+        eps.append(Endpoint(e.get("near"), (float(pt[0]) + ox, float(pt[1]) + oy), page+1))
     return cons, eps
 # === END ADD ===
 
@@ -2185,7 +2215,14 @@ def run_electrical_pipeline(doc, dpi_global=220, dpi_tiles=300, tile_px=1536, ov
         log_to_front(f"📐 Elétrico: tiles {tile_px}px com overlap {int(overlap*100)}% - Total: {total_tiles} tiles")
         eqs: List[Equip] = parse_electrical_equips({"equipments": global_list}, pidx)
         tile_count = 0
+        W_px_at_tiles = None  # Page width in pixels at dpi_tiles
+        H_px_at_tiles = None  # Page height in pixels at dpi_tiles
         for tile,(ox,oy),(W,H), dpi in iter_tiles_with_overlap(page, tile_px=tile_px, overlap_ratio=overlap, dpi=dpi_tiles):
+            # Store page dimensions from first tile (same for all tiles)
+            if W_px_at_tiles is None:
+                W_px_at_tiles = W
+                H_px_at_tiles = H
+            
             tile_count += 1
             log_to_front(f"   🔄 Processando tile {tile_count}/{total_tiles}...")
             buf=io.BytesIO(); tile.save(buf, format="PNG")
@@ -2198,8 +2235,9 @@ def run_electrical_pipeline(doc, dpi_global=220, dpi_tiles=300, tile_px=1536, ov
                 resp_norm = {"equipments": parsed}
             else:
                 resp_norm = parsed if isinstance(parsed, dict) else {"equipments":[]}
-            eqs.extend(parse_electrical_equips(resp_norm, pidx))
-            c,e = parse_electrical_edges(resp_norm, pidx)
+            # Pass tile offsets to add to coordinates
+            eqs.extend(parse_electrical_equips(resp_norm, pidx, ox, oy))
+            c,e = parse_electrical_edges(resp_norm, pidx, ox, oy)
             cons_all.extend(c); eps_all.extend(e)
         
         log_to_front(f"✅ Processados {tile_count} tiles")
@@ -2222,9 +2260,15 @@ def run_electrical_pipeline(doc, dpi_global=220, dpi_tiles=300, tile_px=1536, ov
         # Exporta em mm e aplica matcher para SystemFullName
         page_items = []
         for e in eqs:
-            # converte px->mm pelo dpi_tiles (coerente)
-            x_mm = ( (e.bbox.x + e.bbox.w/2) / dpi_tiles ) * 25.4
-            y_mm = ( (e.bbox.y + e.bbox.h/2) / dpi_tiles ) * 25.4
+            # Convert px->mm using page dimensions for accuracy
+            # Method 1: Use actual page pixel dimensions (more accurate for non-uniform scaling)
+            if W_px_at_tiles is not None and H_px_at_tiles is not None:
+                x_mm = ((e.bbox.x + e.bbox.w/2) / W_px_at_tiles) * W_mm
+                y_mm = ((e.bbox.y + e.bbox.h/2) / H_px_at_tiles) * H_mm
+            else:
+                # Fallback: Use DPI-based conversion (should give same result for uniform scaling)
+                x_mm = ((e.bbox.x + e.bbox.w/2) / dpi_tiles) * 25.4
+                y_mm = ((e.bbox.y + e.bbox.h/2) / dpi_tiles) * 25.4
             
             # Round coordinates to multiples of 4mm for electrical diagrams
             x_mm = round_to_multiple_of_4(x_mm)
