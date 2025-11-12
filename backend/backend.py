@@ -1752,25 +1752,7 @@ REGRAS CRÍTICAS PARA EXTRAÇÃO:
         base += f"""
 **REGRAS ESPECÍFICAS PARA DIAGRAMAS ELÉTRICOS:**
 
-A. DIMENSÕES DE REFERÊNCIA (CRÍTICO):
-   - Diagramas elétricos SEMPRE usam folha A3 horizontal como referência
-   - Dimensões padrão A3 horizontal: 420mm (largura) x 297mm (altura)
-   - IMPORTANTE: Mesmo que a imagem tenha dimensões diferentes, considere a escala em relação ao A3
-   - As coordenadas devem estar proporcionais às dimensões A3 padrão
-
-B. ARREDONDAMENTO DE COORDENADAS (OBRIGATÓRIO PARA DIAGRAMAS ELÉTRICOS):
-   - TODAS as coordenadas (x_mm e y_mm) DEVEM ser arredondadas para múltiplos de 4mm
-   - Exemplos de arredondamento:
-     * x: 10.0 → 12.0 (10 arredonda para 12)
-     * x: 10.5 → 12.0 (10.5 arredonda para 12)
-     * x: 14.0 → 16.0 (14 arredonda para 16)
-     * x: 15.9 → 16.0 (15.9 arredonda para 16)
-     * x: 50.3 → 52.0 (50.3 arredonda para 52)
-   - REGRA: Arredonde para o múltiplo de 4 mais próximo (0, 4, 8, 12, 16, 20, 24, 28, 32, ...)
-   - Esta regra se aplica a AMBOS os eixos X e Y
-   - Primeiro meça a coordenada precisa, DEPOIS arredonde para múltiplo de 4mm
-
-C. TIPO DE DIAGRAMA ELÉTRICO:
+A. TIPO DE DIAGRAMA ELÉTRICO:
    - Identifique se o diagrama é UNIPOLAR ou MULTIFILAR
    - UNIPOLAR (unifilar/single-line): representação simplificada, uma linha por grupo de fases
      * Usado para visão geral do sistema
@@ -1782,13 +1764,13 @@ C. TIPO DE DIAGRAMA ELÉTRICO:
      * Usado para instalação e manutenção
    - Inclua esta informação na análise para melhor matching de componentes
 
-3. TAGS E IDENTIFICAÇÃO:
+2. TAGS E IDENTIFICAÇÃO:
    - Capture TAGs completas mesmo se prefixo e número estiverem separados visualmente
    - Exemplos elétricos: "CB-101", "M-201", "TR-301", "REL-401", "CT-101"
    - Se não houver TAG visível, use "tag": "N/A" mas capture o componente
    - Inclua sufixos importantes: A/B (redundância), -1/-2 (numeração)
 
-4. DESCRIÇÕES (nomenclatura elétrica):
+3. DESCRIÇÕES (nomenclatura elétrica):
    - Use terminologia técnica precisa para componentes elétricos
    - **CRÍTICO - SEMPRE INCLUA O NÚMERO DE POLOS**: Para equipamentos elétricos, SEMPRE especifique se é 1-pole, 2-pole ou 3-pole (ou monopolar, bipolar, tripolar / monofásico, bifásico, trifásico)
    - Exemplos CORRETOS: "Disjuntor trifásico", "Motor trifásico", "Disjuntor monopolar", "Contator trifásico", "Fusível monopolar"
@@ -1799,14 +1781,14 @@ C. TIPO DE DIAGRAMA ELÉTRICO:
      * Para circuitos residenciais/pequenos: podem ser monofásicos (1-pole)
    - Especifique tipo adicional quando visível: "Disjuntor trifásico a vácuo", "Motor trifásico AC assíncrono", "Transformador trifásico abaixador"
 
-5. CONEXÕES ELÉTRICAS (from/to):
+4. CONEXÕES ELÉTRICAS (from/to):
    - Identifique fluxo de potência ou controle: componente de origem → componente de destino
    - Use TAGs dos componentes conectados
    - Se não houver conexão clara, use "N/A"
    - Exemplo: "from": "CB-101", "to": "M-201"
    - VALIDAÇÃO: As coordenadas dos componentes em "from" e "to" devem estar próximas aos cabos/linhas que os conectam
 
-6. COMPLETUDE:
+5. COMPLETUDE:
    - Extraia TODOS os símbolos elétricos visíveis, mesmo sem TAG
    - Não omita instrumentos de medição, proteção ou controle
    - Capture disjuntores, fusíveis, chaves, relés, medidores
@@ -1814,38 +1796,34 @@ C. TIPO DE DIAGRAMA ELÉTRICO:
 
 FORMATO DE SAÍDA (JSON OBRIGATÓRIO):
 
-IMPORTANTE SOBRE COORDENADAS PARA DIAGRAMAS ELÉTRICOS:
-- x_mm e y_mm DEVEM ser múltiplos de 4mm (arredondados)
-- Exemplos CORRETOS: 0.0, 4.0, 8.0, 12.0, 16.0, 20.0, 24.0, 28.0, 32.0, etc.
-- Exemplos INCORRETOS: 10.0, 10.5, 14.0, 15.9, 234.5 (não são múltiplos de 4)
-- PROCESSO: 
-  1. Meça a coordenada precisa do centro do símbolo
-  2. Arredonde para o múltiplo de 4 mais próximo
-  3. Exemplo: centro em (234.5, 567.8) → arredonde para (236.0, 568.0)
-- Garanta que as coordenadas referenciam o centro geométrico exato do símbolo ANTES de arredondar
+IMPORTANTE SOBRE COORDENADAS:
+- x_mm e y_mm devem ser números com precisão de 0.1 mm (uma casa decimal)
+- Use valores como 234.5, 567.8, 1045.3 (mesma precisão que P&ID)
+- Garanta que as coordenadas referenciam o centro geométrico exato do símbolo
+- Exemplo: Para um componente centralizado em (234.5, 567.8), NÃO use (234, 567) ou (235, 568)
 
 [
   {{
     "tag": "CB-101",
     "descricao": "Disjuntor trifásico principal",
-    "x_mm": 236.0,
-    "y_mm": 568.0,
+    "x_mm": 234.5,
+    "y_mm": 567.8,
     "from": "TR-101",
     "to": "M-201"
   }},
   {{
     "tag": "M-201",
     "descricao": "Motor trifásico",
-    "x_mm": 444.0,
-    "y_mm": 556.0,
+    "x_mm": 444.2,
+    "y_mm": 556.3,
     "from": "CB-101",
     "to": "N/A"
   }},
   {{
     "tag": "CT-101",
     "descricao": "Transformador de corrente trifásico",
-    "x_mm": 320.0,
-    "y_mm": 568.0,
+    "x_mm": 320.7,
+    "y_mm": 568.1,
     "from": "CB-101",
     "to": "A-101"
   }}
@@ -2282,9 +2260,10 @@ def run_electrical_pipeline(doc, dpi_global=220, dpi_tiles=300, tile_px=1536, ov
                 x_mm = ((e.bbox.x + e.bbox.w/2) / dpi_tiles) * 25.4
                 y_mm = ((e.bbox.y + e.bbox.h/2) / dpi_tiles) * 25.4
             
-            # Round coordinates to multiples of 4mm for electrical diagrams
-            x_mm = round_to_multiple_of_4(x_mm)
-            y_mm = round_to_multiple_of_4(y_mm)
+            # For electrical diagrams, use same precision as P&ID (0.1mm)
+            # No special rounding - let coordinates be as precise as possible
+            x_mm = round(x_mm, 1)
+            y_mm = round(y_mm, 1)
             y_mm_cad = y_mm  # For electrical diagrams, y_mm_cad is same as y_mm (no flip)
             
             # Build connections from/to for this equipment
@@ -2506,16 +2485,10 @@ async def analyze_pdf(
             if x_was_clamped or y_was_clamped:
                 log_to_front(f"   ⚠️ Coordenadas ajustadas para {tag}: ({x_in_orig:.1f}, {y_in_orig:.1f}) → ({x_in:.1f}, {y_in:.1f})")
             
-            # For electrical diagrams, round coordinates to multiples of 4mm
-            if diagram_type.lower() == "electrical":
-                x_before_rounding = x_in
-                y_before_rounding = y_in
-                x_in = round_to_multiple_of_4(x_in)
-                y_in = round_to_multiple_of_4(y_in)
-                y_cad = y_in  # Update y_cad as well
-                
-                if x_before_rounding != x_in or y_before_rounding != y_in:
-                    log_to_front(f"   📐 Arredondamento para múltiplo de 4mm - {tag}: ({x_before_rounding:.1f}, {y_before_rounding:.1f}) → ({x_in:.1f}, {y_in:.1f})")
+            # For all diagrams, use 0.1mm precision (same as P&ID standard)
+            x_in = round(x_in, 1)
+            y_in = round(y_in, 1)
+            y_cad = y_in  # Update y_cad as well
 
             item = {
                 "tag": tag,
