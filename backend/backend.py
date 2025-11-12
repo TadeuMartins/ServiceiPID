@@ -2156,7 +2156,7 @@ async def process_quadrant(gx, gy, rect, page, W_mm, H_mm, dpi, diagram_type="pi
 
 
 # === BEGIN ADD: ElectricalAnalyzer ===
-def run_electrical_pipeline(doc, dpi_global=220, dpi_tiles=400, tile_px=1024, overlap=0.37)->List[Dict[str,Any]]:
+def run_electrical_pipeline(doc, dpi_global=220, dpi_tiles=300, tile_px=1536, overlap=0.25)->List[Dict[str,Any]]:
     items: List[Dict[str,Any]] = []
     cons_all: List[Conn] = []
     eps_all: List[Endpoint] = []
@@ -2179,7 +2179,7 @@ def run_electrical_pipeline(doc, dpi_global=220, dpi_tiles=400, tile_px=1024, ov
 
         # Tiles com overlap (recupera símbolos pequenos e conexões)
         total_tiles = calculate_tile_count(page, tile_px=tile_px, overlap_ratio=overlap, dpi=dpi_tiles)
-        log_to_front(f"📐 Elétrico: tiles 1024px com overlap 37% - Total: {total_tiles} tiles")
+        log_to_front(f"📐 Elétrico: tiles {tile_px}px com overlap {int(overlap*100)}% - Total: {total_tiles} tiles")
         eqs: List[Equip] = parse_electrical_equips({"equipments": global_list}, pidx)
         tile_count = 0
         for tile,(ox,oy),(W,H), dpi in iter_tiles_with_overlap(page, tile_px=tile_px, overlap_ratio=overlap, dpi=dpi_tiles):
