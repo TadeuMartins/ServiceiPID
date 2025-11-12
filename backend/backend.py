@@ -49,6 +49,62 @@ from system_matcher import match_system_fullname, ensure_embeddings_exist
 # Load environment variables from .env file
 load_dotenv()
 
+# === BEGIN ADD: data models for electrical ===
+from dataclasses import dataclass
+
+@dataclass
+class BBox:
+    x: float; y: float; w: float; h: float
+    def area(self): return max(self.w,0)*max(self.h,0)
+    def iou(self, other:"BBox")->float:
+        x1=max(self.x,other.x); y1=max(self.y,other.y)
+        x2=min(self.x+self.w, other.x+other.w); y2=min(self.y+self.h, other.y+other.h)
+        inter=max(0,x2-x1)*max(0,y2-y1)
+        union=self.area()+other.area()-inter
+        return inter/union if union>0 else 0.0
+
+@dataclass
+class Equip:
+    type: str; tag: Optional[str]; bbox: BBox; page:int; confidence: float; partial: bool=False
+
+@dataclass
+class Conn:
+    from_tag: Optional[str]; to_tag: Optional[str]; path: List[Tuple[float,float]]; direction: str; confidence: float
+
+@dataclass
+class Endpoint:
+    near: Optional[str]; point: Tuple[float,float]; page:int
+
+def _pt_dist(a:Tuple[float,float], b:Tuple[float,float])->float:
+    return math.hypot(a[0]-b[0], a[1]-b[1])
+
+def _path_sim(a:List[Tuple[float,float]], b:List[Tuple[float,float]])->float:
+    if not a or not b: return 0.0
+    n=min(len(a),len(b)); s=0.0
+    for i in range(n):
+        s += max(0.0, 1.0 - min(_pt_dist(a[i], b[i])/20.0, 1.0))
+    return s/n
+
+def _nms(eqs: List[Equip], iou_thr: float=0.55)->List[Equip]:
+    eqs=sorted(eqs, key=lambda e:e.confidence, reverse=True)
+    kept=[]
+    for e in eqs:
+        if all(e.bbox.iou(k.bbox)<=iou_thr for k in kept): kept.append(e)
+    return kept
+
+def _cluster_centroid(eqs: List[Equip], eps: float=10.0)->List[List[Equip]]:
+    groups=[]
+    for e in eqs:
+        cx=e.bbox.x+e.bbox.w/2; cy=e.bbox.y+e.bbox.h/2
+        placed=False
+        for g in groups:
+            gx=sum(x.bbox.x+x.bbox.w/2 for x in g)/len(g)
+            gy=sum(x.bbox.y+x.bbox.h/2 for x in g)/len(g)
+            if (cx-gx)**2+(cy-gy)**2 <= eps**2: g.append(e); placed=True; break
+        if not placed: groups.append([e])
+    return groups
+# === END ADD ===
+
 # =================================================
 # 🔑 COORDINATE CONVERSION CONSTANTS
 # =================================================
@@ -203,6 +259,10 @@ class PDFPage:
         
         img_resized = self._image.resize((target_width, target_height), Image.Resampling.LANCZOS)
         return FallbackPixmap(img_resized)
+    
+    def get_text(self) -> str:
+        """Retorna string vazia - PDFPage não suporta extração de texto"""
+        return ""
 
 
 class FallbackPixmap:
@@ -455,6 +515,19 @@ def render_quadrant_from_page(page, rect, dpi: int = 400) -> bytes:
         log_to_front(f"   ⚠️ Erro ao renderizar quadrante: {type(e).__name__}: {e!r}")
         traceback.print_exc()
         raise
+
+
+# === BEGIN ADD: tiler with overlap ===
+def iter_tiles_with_overlap(page, tile_px: int=1024, overlap_ratio: float=0.37, dpi:int=400):
+    pix = page.get_pixmap(dpi=dpi)
+    img = Image.open(io.BytesIO(pix.tobytes("png"))).convert("L")
+    W,H = img.size
+    step = int(tile_px*(1.0-overlap_ratio)) or tile_px
+    for y in range(0, max(1,H-tile_px+1), step):
+        for x in range(0, max(1,W-tile_px+1), step):
+            crop = img.crop((x,y,x+tile_px,y+tile_px))
+            yield crop, (x,y), (W,H), dpi
+# === END ADD ===
 
 
 def points_to_mm(points: float) -> float:
@@ -1827,6 +1900,26 @@ RETORNE SOMENTE O ARRAY JSON. Não inclua texto adicional, markdown ou explicaç
     return base.strip()
 
 
+# === BEGIN ADD: electrical prompts ===
+def build_prompt_electrical_global(page_idx:int, wpx:int, hpx:int)->str:
+    return (
+        "You analyze an ELECTRICAL SCHEMATIC (single-line or multi-line). "
+        "Detect high-level components and tags. Return strictly JSON: "
+        "{equipments:[{type,tag,bbox:{x,y,w,h},page,confidence,partial}]}. "
+        f"All coordinates are ABSOLUTE page pixels for page={page_idx+1}, width={wpx}, height={hpx}."
+    )
+
+def build_prompt_electrical_tile(page_idx:int, ox:int, oy:int)->str:
+    return (
+        "ELECTRICAL SCHEMATIC TILE. Detect symbols (motors, breakers, fuses, relays, terminals) "
+        "and connections (from_tag,to_tag,path,direction,confidence). "
+        "If an object is cut by tile border, set partial=true. "
+        "Return strictly JSON: {equipments:[...], connections:[...], unresolved_endpoints:[{near,point,page}]}. "
+        f"Coordinates MUST be ABSOLUTE page pixels by adding offsets ox={ox}, oy={oy}; page={page_idx+1}."
+    )
+# === END ADD ===
+
+
 # ============================================================
 # LLM CALL
 # ============================================================
@@ -1915,6 +2008,88 @@ def llm_call(image_b64: str, prompt: str, prefer_model: str = PRIMARY_MODEL):
             raise
 
 
+# === BEGIN ADD: parsers ===
+def parse_electrical_equips(resp: Dict[str, Any], page:int)->List[Equip]:
+    out=[]
+    for e in (resp or {}).get("equipments",[]) or []:
+        b=e.get("bbox",{}) or {}
+        out.append(Equip(
+            type=str(e.get("type","UNKNOWN")),
+            tag=(e.get("tag") or None),
+            bbox=BBox(float(b.get("x",0)), float(b.get("y",0)), float(b.get("w",0)), float(b.get("h",0))),
+            page=page+1,
+            confidence=float(e.get("confidence",0)),
+            partial=bool(e.get("partial",False))
+        ))
+    return out
+
+def parse_electrical_edges(resp: Dict[str, Any], page:int)->Tuple[List[Conn], List[Endpoint]]:
+    cons=[]; eps=[]
+    for c in (resp or {}).get("connections",[]) or []:
+        path=[tuple(map(float,pt)) for pt in (c.get("path") or [])]
+        cons.append(Conn(c.get("from_tag"), c.get("to_tag"), path, str(c.get("direction","undirected")), float(c.get("confidence",0))))
+    for e in (resp or {}).get("unresolved_endpoints",[]) or []:
+        pt=e.get("point") or [0,0]
+        eps.append(Endpoint(e.get("near"), (float(pt[0]), float(pt[1])), page+1))
+    return cons, eps
+# === END ADD ===
+
+# === BEGIN ADD: merge & snap ===
+def merge_electrical_equips(dets: List[Equip])->List[Equip]:
+    # remove parciais quando existe não-parcial sobreposto, NMS + cluster e preferência por quem tem tag
+    by_type={}
+    for d in dets: by_type.setdefault(d.type,[]).append(d)
+    merged=[]
+    for t,group in by_type.items():
+        group = sorted(group, key=lambda x:(x.partial, -x.confidence))
+        group = _nms(group, iou_thr=0.55)
+        for cl in _cluster_centroid(group, eps=10.0):
+            best = max(cl, key=lambda x:(1 if x.tag else 0, x.confidence))
+            merged.append(best)
+    # fusão por tag (mesma tag, bbox próximo)
+    tagged=[m for m in merged if m.tag]; untag=[m for m in merged if not m.tag]
+    final=[]; used=set()
+    for i,a in enumerate(tagged):
+        if i in used: continue
+        cand=[a]
+        for j,b in enumerate(tagged):
+            if j<=i or j in used: continue
+            if a.tag==b.tag and a.bbox.iou(b.bbox)>0.3:
+                cand.append(b); used.add(j)
+        final.append(max(cand, key=lambda x:x.confidence))
+    final.extend(untag)
+    return final
+
+def merge_electrical_conns(cons: List[Conn])->List[Conn]:
+    out=[]
+    for c in cons:
+        if not any((c.from_tag==d.from_tag and c.to_tag==d.to_tag and _path_sim(c.path,d.path)>0.8) for d in out):
+            out.append(c)
+    return out
+
+def dedup_endpoints(eps: List[Endpoint])->List[Endpoint]:
+    out=[]
+    for e in eps:
+        if not any(abs(e.point[0]-d.point[0])<5 and abs(e.point[1]-d.point[1])<5 and e.page==d.page for d in out):
+            out.append(e)
+    return out
+
+def snap_endpoints_to_tags(cons: List[Conn], eps: List[Endpoint], eqs: List[Equip], radius: float=25.0):
+    tags=[(e.tag,e) for e in eqs if e.tag]
+    added=[]; leftovers=[]
+    for e in eps:
+        best=None; bestd=1e9
+        for tag, eq in tags:
+            cx=eq.bbox.x+eq.bbox.w/2; cy=eq.bbox.y+eq.bbox.h/2
+            d=_pt_dist(e.point, (cx,cy))
+            if d<bestd: bestd=d; best=eq
+        if best and bestd<=radius:
+            added.append(Conn(best.tag, None, [e.point, (best.bbox.x, best.bbox.y)], "undirected", 0.5))
+        else:
+            leftovers.append(e)
+    return cons+added, leftovers
+# === END ADD ===
+
 # ============================================================
 # PROCESSAMENTO QUADRANTE
 # ============================================================
@@ -1955,6 +2130,93 @@ async def process_quadrant(gx, gy, rect, page, W_mm, H_mm, dpi, diagram_type="pi
         return []
 
 
+# === BEGIN ADD: ElectricalAnalyzer ===
+def run_electrical_pipeline(doc, dpi_global=220, dpi_tiles=400, tile_px=1024, overlap=0.37)->Dict[str,Any]:
+    items: List[Dict[str,Any]] = []
+    cons_all: List[Conn] = []
+    eps_all: List[Endpoint] = []
+    for pidx, page in enumerate(doc):
+        log_to_front(f"\n⚡ === Página {pidx+1} (Elétrico) ===")
+        
+        # Passada global (contexto/tag grande)
+        pix = page.get_pixmap(dpi=dpi_global)
+        img = Image.open(io.BytesIO(pix.tobytes("png")))
+        Wpx, Hpx = img.size
+        # use llm_call já existente
+        page_b64 = base64.b64encode(pix.tobytes("png")).decode("utf-8")
+        raw_model, resp = llm_call(page_b64, build_prompt_electrical_global(pidx, Wpx, Hpx))
+        raw = resp.choices[0].message.content if resp and resp.choices else ""
+        global_list = ensure_json_list(raw)
+        log_to_front(f"⚡ Elétrico(Global) itens: {len(global_list)}")
+
+        # Tiles com overlap (recupera símbolos pequenos e conexões)
+        log_to_front("📐 Elétrico: tiles 1024px com overlap 37%")
+        eqs: List[Equip] = parse_electrical_equips({"equipments": global_list}, pidx)
+        tile_count = 0
+        for tile,(ox,oy),(W,H), dpi in iter_tiles_with_overlap(page, tile_px=tile_px, overlap_ratio=overlap, dpi=dpi_tiles):
+            tile_count += 1
+            buf=io.BytesIO(); tile.save(buf, format="PNG")
+            b64 = base64.b64encode(buf.getvalue()).decode("utf-8")
+            _, r = llm_call(b64, build_prompt_electrical_tile(pidx, ox, oy))
+            raw_tile = r.choices[0].message.content if r and r.choices else ""
+            parsed = ensure_json_list(raw_tile)  # aceita {equipments:[...]} OU lista
+            # normaliza possíveis formatos
+            if isinstance(parsed, list):
+                resp_norm = {"equipments": parsed}
+            else:
+                resp_norm = parsed if isinstance(parsed, dict) else {"equipments":[]}
+            eqs.extend(parse_electrical_equips(resp_norm, pidx))
+            c,e = parse_electrical_edges(resp_norm, pidx)
+            cons_all.extend(c); eps_all.extend(e)
+        
+        log_to_front(f"📐 Processados {tile_count} tiles")
+
+        # Deduplicação e snap
+        eqs = merge_electrical_equips(eqs)
+        cons_all = merge_electrical_conns(cons_all)
+        eps_all = dedup_endpoints(eps_all)
+        cons_all, eps_all = snap_endpoints_to_tags(cons_all, eps_all, eqs)
+
+        # Exporta em mm (usa points_to_mm existente via dpi_tiles -> mm)
+        for e in eqs:
+            # converte px->mm pelo dpi_tiles (coerente)
+            x_mm = ( (e.bbox.x + e.bbox.w/2) / dpi_tiles ) * 25.4
+            y_mm = ( (e.bbox.y + e.bbox.h/2) / dpi_tiles ) * 25.4
+            items.append({
+                "pagina": e.page,
+                "tipo": e.type,
+                "tag": e.tag or "N/A",
+                "x_mm": round(x_mm, 1),
+                "y_mm": round(y_mm, 1),
+                "confidence": round(float(e.confidence),2),
+                "_src": "electrical"
+            })
+
+    # Conexões simplificadas (from/to)
+    connections = []
+    for c in cons_all:
+        connections.append({"from": c.from_tag or "N/A", "to": c.to_tag or "N/A", "confidence": round(float(c.confidence),2)})
+
+    log_to_front(f"🧩 Elétrico: consolidados={len(items)} conexões={len(connections)}")
+    
+    return {
+        "items": sanitize_for_json(items),
+        "connections": sanitize_for_json(connections),
+        "unresolved_endpoints": [{"page":e.page, "x":e.point[0], "y":e.point[1]} for e in eps_all]
+    }
+# === END ADD ===
+
+# === BEGIN ADD: detector de tipo ===
+ELECTRICAL_HINTS = ["ONE-LINE","SINGLE LINE","SCHEMATIC","PANEL","CIRCUIT BREAKER","CB-","TB-","FUSE","RELAY","CONTACTOR","MCC-","PNL-"]
+PID_HINTS = ["P&ID","PIPE","VALVE","LINE LIST","INSTRUMENT","PIPING"]
+
+def detect_diagram_kind(text:str)->str:
+    t = (text or "").upper()
+    score_e = sum(1 for k in ELECTRICAL_HINTS if k in t)
+    score_p = sum(1 for k in PID_HINTS if k in t)
+    return "electrical" if (score_e>=2 and score_p==0) else "pid"
+# === END ADD ===
+
 # ============================================================
 # ROTA PRINCIPAL
 # ============================================================
@@ -1981,6 +2243,26 @@ async def analyze_pdf(
 
     # Usa função robusta para abrir PDF com tratamento de erros ExtGState
     doc = open_pdf_safely(data, file.filename)
+
+    # === BEGIN EDIT: branch elétrico preservando P&ID ===
+    # 1) se o usuário pedir explicitamente:
+    if diagram_type.lower() == "electrical":
+        result = run_electrical_pipeline(doc)
+        return JSONResponse(result)
+
+    # 2) se você quiser auto-detecção quando diagram_type == "auto":
+    if diagram_type.lower() == "auto":
+        # tente pegar texto da primeira página (nativo ou OCR leve)
+        try:
+            txt = (doc[0].get_text() or "")
+        except Exception:
+            txt = ""
+        kind = detect_diagram_kind(txt)
+        if kind == "electrical":
+            result = run_electrical_pipeline(doc)
+            return JSONResponse(result)
+        # caso contrário, continue o fluxo P&ID normal abaixo
+    # === END EDIT ===
 
     all_pages: List[Dict[str, Any]] = []
 
