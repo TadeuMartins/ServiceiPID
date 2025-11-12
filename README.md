@@ -1,4 +1,4 @@
-# 🔎 P&ID Digitalizer DS Brazil - Siemens
+# Siemens Electrical Diagram and P&ID Digitalizer
 
 Este projeto é um **aplicativo web** para análise de diagramas P&ID usando **Azure OpenAI GPT-4 multimodal**.
 
