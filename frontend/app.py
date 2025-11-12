@@ -34,7 +34,7 @@ if "chatbot_mode" not in st.session_state:
     st.session_state.chatbot_mode = "hybrid"
 
 # ======== Layout inicial ========
-st.set_page_config(page_title="P&ID Digitalizer DS Brazil - Siemens", layout="wide")
+st.set_page_config(page_title="Siemens Electrical Diagram and P&ID Digitalizer", layout="wide")
 
 # Header customizado
 col1, col2 = st.columns([1,5])
@@ -42,13 +42,13 @@ with col1:
     st.image("sie_logo.png", width=180)
 with col2:
     st.markdown(
-        "<h1 style='color:#009999; font-size:36px;'>🔎 P&ID Digitalizer DS Brazil - Siemens</h1>",
+        "<h1 style='color:#009999; font-size:36px;'>Siemens Electrical Diagram and P&ID Digitalizer</h1>",
         unsafe_allow_html=True
     )
 st.markdown("---")
 
 # ======== Abas para diferentes modos ========
-tab1, tab2 = st.tabs(["📂 Analisar PDF", "🎨 Gerar a partir de Prompt"])
+tab1, tab2 = st.tabs(["Analisar PDF", "Gerar a partir de Prompt"])
 
 with tab1:
     st.markdown("### Analise um P&ID existente")
@@ -62,7 +62,7 @@ with tab1:
         help="Selecione o tipo de diagrama para usar a referência apropriada no system matcher"
     )
     
-    uploaded_file = st.file_uploader("📂 Envie um arquivo PDF de P&ID", type=["pdf"])
+    uploaded_file = st.file_uploader("Envie um arquivo PDF de P&ID", type=["pdf"])
 
 with tab2:
     st.markdown("### Gere um P&ID a partir de descrição em linguagem natural")
@@ -89,7 +89,7 @@ with tab2:
         height=100
     )
     
-    generate_button = st.button("🎨 Gerar P&ID", type="primary", use_container_width=True)
+    generate_button = st.button("Gerar P&ID", type="primary", use_container_width=True)
 
 # ======== Normalizador de resposta ========
 def normalize_backend_result(data):
@@ -190,7 +190,7 @@ if uploaded_file:
                     st.info("💡 **Dica:** Role para baixo para usar o chatbot e fazer perguntas específicas sobre este P&ID!")
 
             # ======== KPIs ========
-            st.subheader("📊 Resumo da Análise")
+            st.subheader("Resumo da Análise")
             c1, c2, c3 = st.columns(3)
             with c1:
                 st.metric("Total de Equipamentos", len(df))
@@ -200,7 +200,7 @@ if uploaded_file:
                 st.metric("Modelos Usados", ", ".join(df["modelo"].unique().tolist()))
 
             # ======== Filtro ========
-            st.subheader("🔍 Filtrar Resultados")
+            st.subheader("Filtrar Resultados")
             paginas = sorted(df["pagina"].unique())
             pagina_sel = st.selectbox("Selecione a Página", ["Todas"] + list(map(str, paginas)))
 
@@ -212,7 +212,7 @@ if uploaded_file:
             st.dataframe(df_filtered, use_container_width=True)
 
             # ======== Exportação ========
-            st.subheader("📥 Exportar Resultados")
+            st.subheader("Exportar Resultados")
 
             # Nome base do PDF (sem extensão)
             pid_name = os.path.splitext(st.session_state.analysis_results["uploaded_file_name"])[0]
@@ -229,14 +229,14 @@ if uploaded_file:
             except OSError:
                 pass  # File will be cleaned up by OS eventually
             st.download_button(
-                "💾 Baixar Excel",
+                "Baixar Excel",
                 excel_data,
                 file_name=f"{safe_name}_analysis.xlsx",
                 use_container_width=True
             )
 
             # ======== Preview PDF ========
-            with st.expander("👁️ Pré-visualizar páginas anotadas"):
+            with st.expander("Pré-visualizar páginas anotadas"):
                 tmp_pdf = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
                 tmp_pdf.write(uploaded_file.getvalue())
                 tmp_pdf.close()
@@ -266,7 +266,7 @@ if uploaded_file:
                     pass  # File will be cleaned up by OS eventually
 
             # ======== Raw JSON (debug opcional) ========
-            with st.expander("📂 Ver JSON bruto do backend"):
+            with st.expander("Ver JSON bruto do backend"):
                 st.json(data)
 
         else:
@@ -354,7 +354,7 @@ if generate_button and prompt_text:
                     st.info("💡 **Dica:** Role para baixo para usar o chatbot e fazer perguntas específicas sobre este P&ID!")
 
             # ======== KPIs ========
-            st.subheader("📊 Resumo da Geração")
+            st.subheader("Resumo da Geração")
             c1, c2, c3 = st.columns(3)
             with c1:
                 st.metric("Total de Equipamentos", len(df))
@@ -364,11 +364,11 @@ if generate_button and prompt_text:
                 st.metric("Modelo Usado", df["modelo"].iloc[0] if len(df) > 0 else "N/A")
 
             # ======== Tabela ========
-            st.subheader("📋 Equipamentos e Instrumentos Gerados")
+            st.subheader("Equipamentos e Instrumentos Gerados")
             st.dataframe(df, use_container_width=True)
 
             # ======== Exportação ========
-            st.subheader("📥 Exportar Resultados")
+            st.subheader("Exportar Resultados")
 
             # Nome baseado no prompt (primeiras palavras)
             prompt_words = "_".join(prompt_text.split()[:5])
@@ -385,14 +385,14 @@ if generate_button and prompt_text:
             except OSError:
                 pass  # File will be cleaned up by OS eventually
             st.download_button(
-                "💾 Baixar Excel",
+                "Baixar Excel",
                 excel_data,
                 file_name=f"{safe_name}_gerado.xlsx",
                 use_container_width=True
             )
 
             # ======== Visualização 2D ========
-            with st.expander("📐 Visualizar Layout (A0)"):
+            with st.expander("Visualizar Layout (A0)"):
                 fig, ax = plt.subplots(figsize=(16, 11))
                 
                 # Desenha borda da folha A0
@@ -423,7 +423,7 @@ if generate_button and prompt_text:
                 st.pyplot(fig)
 
             # ======== Raw JSON (debug opcional) ========
-            with st.expander("📂 Ver JSON bruto do backend"):
+            with st.expander("Ver JSON bruto do backend"):
                 st.json(data)
 
         else:
