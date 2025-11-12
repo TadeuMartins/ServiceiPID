@@ -1911,23 +1911,33 @@ RETORNE SOMENTE O ARRAY JSON. Não inclua texto adicional, markdown ou explicaç
 
 
 # === BEGIN ADD: electrical prompts ===
-def build_prompt_electrical_global(page_idx:int, wpx:int, hpx:int)->str:
+def build_prompt_electrical_global(page_idx:int, wpx:int, hpx:int, w_mm:float, h_mm:float)->str:
     return (
         "You analyze an ELECTRICAL SCHEMATIC (single-line or multi-line). "
         "Detect high-level components and tags. Return strictly JSON: "
         "{equipments:[{type,tag,descricao,bbox:{x,y,w,h},page,confidence,partial}]}. "
         "The 'descricao' field should contain a complete Portuguese description of the equipment (e.g., 'Disjuntor trifásico', 'Motor elétrico', 'Transformador'). "
-        f"All coordinates are ABSOLUTE page pixels for page={page_idx+1}, width={wpx}, height={hpx}."
+        f"All coordinates are ABSOLUTE page pixels for page={page_idx+1}, width={wpx}px, height={hpx}px. "
+        f"IMPORTANT: The actual sheet dimensions are {w_mm:.1f}mm (width) x {h_mm:.1f}mm (height). "
+        f"Measure coordinates precisely - each pixel corresponds to approximately {w_mm/wpx:.3f}mm on X-axis and {h_mm/hpx:.3f}mm on Y-axis."
     )
 
-def build_prompt_electrical_tile(page_idx:int, ox:int, oy:int)->str:
+def build_prompt_electrical_tile(page_idx:int, ox:int, oy:int, tile_w_px:int, tile_h_px:int, page_w_mm:float, page_h_mm:float, page_w_px:int, page_h_px:int)->str:
+    # Calculate mm per pixel ratios
+    mm_per_px_x = page_w_mm / page_w_px
+    mm_per_px_y = page_h_mm / page_h_px
+    
     return (
         "ELECTRICAL SCHEMATIC TILE. Detect symbols (motors, breakers, fuses, relays, terminals) "
         "and connections (from_tag,to_tag,path,direction,confidence). "
         "For each equipment, provide a complete Portuguese description in the 'descricao' field (e.g., 'Disjuntor monopolar', 'Contator tripolar', 'Motor trifásico'). "
         "If an object is cut by tile border, set partial=true. "
         "Return strictly JSON: {equipments:[{type,tag,descricao,bbox:{x,y,w,h},confidence,partial},...], connections:[...], unresolved_endpoints:[{near,point,page}]}. "
-        f"Coordinates are TILE-LOCAL pixels (top-left of this tile is 0,0). Tile offset will be added automatically. Page={page_idx+1}."
+        f"Coordinates are TILE-LOCAL pixels (top-left of this tile is 0,0). Tile offset ({ox}px, {oy}px) will be added automatically. "
+        f"This tile is {tile_w_px}px x {tile_h_px}px. "
+        f"IMPORTANT: The complete sheet is {page_w_mm:.1f}mm x {page_h_mm:.1f}mm ({page_w_px}px x {page_h_px}px at render resolution). "
+        f"Each pixel = {mm_per_px_x:.3f}mm (X) and {mm_per_px_y:.3f}mm (Y). "
+        f"Page={page_idx+1}."
     )
 # === END ADD ===
 
@@ -2199,13 +2209,18 @@ def run_electrical_pipeline(doc, dpi_global=220, dpi_tiles=300, tile_px=1536, ov
         page_num = pidx + 1
         log_to_front(f"\n⚡ === Página {page_num} (Elétrico) ===")
         
+        # Get page dimensions in mm FIRST (needed for prompts)
+        W_pts, H_pts = page.rect.width, page.rect.height
+        W_mm, H_mm = points_to_mm(W_pts), points_to_mm(H_pts)
+        log_to_front(f"📄 Dimensões da folha: {W_mm:.1f}mm x {H_mm:.1f}mm")
+        
         # Passada global (contexto/tag grande)
         pix = page.get_pixmap(dpi=dpi_global)
         img = Image.open(io.BytesIO(pix.tobytes("png")))
         Wpx, Hpx = img.size
         # use llm_call já existente
         page_b64 = base64.b64encode(pix.tobytes("png")).decode("utf-8")
-        raw_model, resp = llm_call(page_b64, build_prompt_electrical_global(pidx, Wpx, Hpx))
+        raw_model, resp = llm_call(page_b64, build_prompt_electrical_global(pidx, Wpx, Hpx, W_mm, H_mm))
         raw = resp.choices[0].message.content if resp and resp.choices else ""
         global_list = ensure_json_list(raw)
         log_to_front(f"⚡ Elétrico(Global) itens: {len(global_list)}")
@@ -2226,8 +2241,9 @@ def run_electrical_pipeline(doc, dpi_global=220, dpi_tiles=300, tile_px=1536, ov
             tile_count += 1
             log_to_front(f"   🔄 Processando tile {tile_count}/{total_tiles}...")
             buf=io.BytesIO(); tile.save(buf, format="PNG")
+            tile_w_px, tile_h_px = tile.size
             b64 = base64.b64encode(buf.getvalue()).decode("utf-8")
-            _, r = llm_call(b64, build_prompt_electrical_tile(pidx, ox, oy))
+            _, r = llm_call(b64, build_prompt_electrical_tile(pidx, ox, oy, tile_w_px, tile_h_px, W_mm, H_mm, W, H))
             raw_tile = r.choices[0].message.content if r and r.choices else ""
             parsed = ensure_json_list(raw_tile)  # aceita {equipments:[...]} OU lista
             # normaliza possíveis formatos
@@ -2248,10 +2264,6 @@ def run_electrical_pipeline(doc, dpi_global=220, dpi_tiles=300, tile_px=1536, ov
         eps_all = dedup_endpoints(eps_all)
         cons_all, eps_all = snap_endpoints_to_tags(cons_all, eps_all, eqs)
 
-        # Get page dimensions in mm
-        W_pts, H_pts = page.rect.width, page.rect.height
-        W_mm, H_mm = points_to_mm(W_pts), points_to_mm(H_pts)
-        
         # Detect diagram subtype for better matching
         all_descriptions = " ".join([e.descricao for e in eqs])
         diagram_subtype = detect_electrical_diagram_subtype([{"descricao": e.descricao} for e in eqs], all_descriptions)
