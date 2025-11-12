@@ -2013,10 +2013,25 @@ def parse_electrical_equips(resp: Dict[str, Any], page:int)->List[Equip]:
     out=[]
     for e in (resp or {}).get("equipments",[]) or []:
         b=e.get("bbox",{}) or {}
+        
+        # Handle both list [x, y, w, h] and dict {x, y, w, h} formats
+        if isinstance(b, list):
+            # bbox is a list: [x, y, w, h]
+            x = float(b[0]) if len(b) > 0 else 0
+            y = float(b[1]) if len(b) > 1 else 0
+            w = float(b[2]) if len(b) > 2 else 0
+            h = float(b[3]) if len(b) > 3 else 0
+        else:
+            # bbox is a dict: {x, y, w, h}
+            x = float(b.get("x", 0))
+            y = float(b.get("y", 0))
+            w = float(b.get("w", 0))
+            h = float(b.get("h", 0))
+        
         out.append(Equip(
             type=str(e.get("type","UNKNOWN")),
             tag=(e.get("tag") or None),
-            bbox=BBox(float(b.get("x",0)), float(b.get("y",0)), float(b.get("w",0)), float(b.get("h",0))),
+            bbox=BBox(x, y, w, h),
             page=page+1,
             confidence=float(e.get("confidence",0)),
             partial=bool(e.get("partial",False))
