@@ -2192,7 +2192,7 @@ async def process_quadrant(gx, gy, rect, page, W_mm, H_mm, dpi, diagram_type="pi
 
 
 # === BEGIN ADD: ElectricalAnalyzer ===
-def run_electrical_pipeline(doc, dpi_global=220, dpi_tiles=300, tile_px=1536, overlap=0.25)->List[Dict[str,Any]]:
+def run_electrical_pipeline(doc, dpi_global=220, dpi_tiles=300, tile_px=2048, overlap=0.20)->List[Dict[str,Any]]:
     items: List[Dict[str,Any]] = []
     cons_all: List[Conn] = []
     eps_all: List[Endpoint] = []
