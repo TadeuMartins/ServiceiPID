@@ -2276,7 +2276,7 @@ def run_electrical_pipeline(doc, dpi_global=220, dpi_tiles=300, tile_px=1536, ov
                 y_mm = ((e.bbox.y + e.bbox.h/2) / dpi_tiles) * 25.4
             
             # Round coordinates to multiples of 4mm for electrical diagrams
-            # Note: Coordinates are now based on actual page dimensions (not hardcoded A3)
+            # Note: Coordinates are based on fixed A3 dimensions (420x297mm) for all electrical diagrams
             x_mm = round_to_multiple_of_4(x_mm)
             y_mm = round_to_multiple_of_4(y_mm)
             y_mm_cad = y_mm  # For electrical diagrams, y_mm_cad is same as y_mm (no flip)
