@@ -2202,18 +2202,22 @@ def run_electrical_pipeline(doc, dpi_global=220, dpi_tiles=300, tile_px=1536, ov
         page_num = pidx + 1
         log_to_front(f"\n⚡ === Página {page_num} (Elétrico) ===")
         
-        # For electrical diagrams, ALWAYS use A3 horizontal dimensions (420mm x 297mm)
-        # regardless of actual PDF page dimensions
-        W_mm, H_mm = get_electrical_diagram_dimensions()
-        log_to_front(f"📄 Dimensões da folha (A3 horizontal fixo): {W_mm:.1f}mm x {H_mm:.1f}mm")
+        # Get ACTUAL page dimensions for correct pixel-to-mm ratio in prompts
+        W_pts, H_pts = page.rect.width, page.rect.height
+        W_mm_actual, H_mm_actual = points_to_mm(W_pts), points_to_mm(H_pts)
+        log_to_front(f"📄 Dimensões reais do PDF: {W_mm_actual:.1f}mm x {H_mm_actual:.1f}mm")
+        
+        # Target dimensions for output (always A3 for electrical diagrams)
+        W_mm_target, H_mm_target = get_electrical_diagram_dimensions()
+        log_to_front(f"📄 Dimensões alvo (A3 horizontal): {W_mm_target:.1f}mm x {H_mm_target:.1f}mm")
         
         # Passada global (contexto/tag grande)
         pix = page.get_pixmap(dpi=dpi_global)
         img = Image.open(io.BytesIO(pix.tobytes("png")))
         Wpx, Hpx = img.size
-        # use llm_call já existente
+        # use llm_call já existente - use ACTUAL dimensions for correct mm-per-pixel ratio
         page_b64 = base64.b64encode(pix.tobytes("png")).decode("utf-8")
-        raw_model, resp = llm_call(page_b64, build_prompt_electrical_global(pidx, Wpx, Hpx, W_mm, H_mm))
+        raw_model, resp = llm_call(page_b64, build_prompt_electrical_global(pidx, Wpx, Hpx, W_mm_actual, H_mm_actual))
         raw = resp.choices[0].message.content if resp and resp.choices else ""
         global_list = ensure_json_list(raw)
         log_to_front(f"⚡ Elétrico(Global) itens: {len(global_list)}")
@@ -2236,7 +2240,8 @@ def run_electrical_pipeline(doc, dpi_global=220, dpi_tiles=300, tile_px=1536, ov
             buf=io.BytesIO(); tile.save(buf, format="PNG")
             tile_w_px, tile_h_px = tile.size
             b64 = base64.b64encode(buf.getvalue()).decode("utf-8")
-            _, r = llm_call(b64, build_prompt_electrical_tile(pidx, ox, oy, tile_w_px, tile_h_px, W_mm, H_mm, W, H))
+            # Use ACTUAL dimensions for correct mm-per-pixel ratio
+            _, r = llm_call(b64, build_prompt_electrical_tile(pidx, ox, oy, tile_w_px, tile_h_px, W_mm_actual, H_mm_actual, W, H))
             raw_tile = r.choices[0].message.content if r and r.choices else ""
             parsed = ensure_json_list(raw_tile)  # aceita {equipments:[...]} OU lista
             # normaliza possíveis formatos
@@ -2265,18 +2270,26 @@ def run_electrical_pipeline(doc, dpi_global=220, dpi_tiles=300, tile_px=1536, ov
         # Exporta em mm e aplica matcher para SystemFullName
         page_items = []
         for e in eqs:
-            # Convert px->mm using page dimensions for accuracy
-            # Method 1: Use actual page pixel dimensions (more accurate for non-uniform scaling)
+            # Convert px->mm in ACTUAL page dimensions first
+            # Then scale to A3 target dimensions
             if W_px_at_tiles is not None and H_px_at_tiles is not None:
-                x_mm = ((e.bbox.x + e.bbox.w/2) / W_px_at_tiles) * W_mm
-                y_mm = ((e.bbox.y + e.bbox.h/2) / H_px_at_tiles) * H_mm
+                # Step 1: Convert pixels to mm in actual page space
+                x_mm_actual = ((e.bbox.x + e.bbox.w/2) / W_px_at_tiles) * W_mm_actual
+                y_mm_actual = ((e.bbox.y + e.bbox.h/2) / H_px_at_tiles) * H_mm_actual
+                
+                # Step 2: Scale from actual page dimensions to A3 target dimensions
+                # This maps coordinates proportionally to the A3 space
+                x_mm = (x_mm_actual / W_mm_actual) * W_mm_target
+                y_mm = (y_mm_actual / H_mm_actual) * H_mm_target
             else:
-                # Fallback: Use DPI-based conversion (should give same result for uniform scaling)
-                x_mm = ((e.bbox.x + e.bbox.w/2) / dpi_tiles) * 25.4
-                y_mm = ((e.bbox.y + e.bbox.h/2) / dpi_tiles) * 25.4
+                # Fallback: Use DPI-based conversion to actual dimensions, then scale
+                x_mm_actual = ((e.bbox.x + e.bbox.w/2) / dpi_tiles) * 25.4
+                y_mm_actual = ((e.bbox.y + e.bbox.h/2) / dpi_tiles) * 25.4
+                x_mm = (x_mm_actual / W_mm_actual) * W_mm_target
+                y_mm = (y_mm_actual / H_mm_actual) * H_mm_target
             
             # Round coordinates to multiples of 4mm for electrical diagrams
-            # Note: Coordinates are based on fixed A3 dimensions (420x297mm) for all electrical diagrams
+            # Note: Coordinates are now scaled to A3 dimensions (420x297mm)
             x_mm = round_to_multiple_of_4(x_mm)
             y_mm = round_to_multiple_of_4(y_mm)
             y_mm_cad = y_mm  # For electrical diagrams, y_mm_cad is same as y_mm (no flip)
@@ -2296,8 +2309,8 @@ def run_electrical_pipeline(doc, dpi_global=220, dpi_tiles=300, tile_px=1536, ov
                 "pagina": e.page,
                 "from": from_str,
                 "to": to_str,
-                "page_width_mm": W_mm,
-                "page_height_mm": H_mm,
+                "page_width_mm": W_mm_target,  # Report A3 dimensions
+                "page_height_mm": H_mm_target,
             }
             
             # Apply system matcher to get SystemFullName
