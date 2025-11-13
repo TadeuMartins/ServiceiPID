@@ -1796,11 +1796,12 @@ A. TIPO DE DIAGRAMA ELÉTRICO:
 
 FORMATO DE SAÍDA (JSON OBRIGATÓRIO):
 
-IMPORTANTE SOBRE COORDENADAS:
-- x_mm e y_mm devem ser números com precisão de 0.1 mm (uma casa decimal)
-- Use valores como 234.5, 567.8, 1045.3 (mesma precisão que P&ID)
+IMPORTANTE SOBRE COORDENADAS PARA DIAGRAMAS ELÉTRICOS:
+- Meça as coordenadas x_mm e y_mm com a máxima precisão possível
+- As coordenadas serão automaticamente arredondadas para múltiplos de 4mm pelo sistema
 - Garanta que as coordenadas referenciam o centro geométrico exato do símbolo
-- Exemplo: Para um componente centralizado em (234.5, 567.8), NÃO use (234, 567) ou (235, 568)
+- Use o tamanho real da folha informado (não assuma dimensões padrão)
+- Exemplo: Se você mede (234.5, 567.8), o sistema arredondará para (236.0, 568.0)
 
 [
   {{
@@ -2260,10 +2261,10 @@ def run_electrical_pipeline(doc, dpi_global=220, dpi_tiles=300, tile_px=1536, ov
                 x_mm = ((e.bbox.x + e.bbox.w/2) / dpi_tiles) * 25.4
                 y_mm = ((e.bbox.y + e.bbox.h/2) / dpi_tiles) * 25.4
             
-            # For electrical diagrams, use same precision as P&ID (0.1mm)
-            # No special rounding - let coordinates be as precise as possible
-            x_mm = round(x_mm, 1)
-            y_mm = round(y_mm, 1)
+            # Round coordinates to multiples of 4mm for electrical diagrams
+            # Note: Coordinates are now based on actual page dimensions (not hardcoded A3)
+            x_mm = round_to_multiple_of_4(x_mm)
+            y_mm = round_to_multiple_of_4(y_mm)
             y_mm_cad = y_mm  # For electrical diagrams, y_mm_cad is same as y_mm (no flip)
             
             # Build connections from/to for this equipment
@@ -2485,10 +2486,22 @@ async def analyze_pdf(
             if x_was_clamped or y_was_clamped:
                 log_to_front(f"   ⚠️ Coordenadas ajustadas para {tag}: ({x_in_orig:.1f}, {y_in_orig:.1f}) → ({x_in:.1f}, {y_in:.1f})")
             
-            # For all diagrams, use 0.1mm precision (same as P&ID standard)
-            x_in = round(x_in, 1)
-            y_in = round(y_in, 1)
-            y_cad = y_in  # Update y_cad as well
+            # For electrical diagrams, round coordinates to multiples of 4mm
+            # Note: Coordinates are now based on actual page dimensions (not hardcoded A3)
+            if diagram_type.lower() == "electrical":
+                x_before_rounding = x_in
+                y_before_rounding = y_in
+                x_in = round_to_multiple_of_4(x_in)
+                y_in = round_to_multiple_of_4(y_in)
+                y_cad = y_in  # Update y_cad as well
+                
+                if x_before_rounding != x_in or y_before_rounding != y_in:
+                    log_to_front(f"   📐 Arredondamento para múltiplo de 4mm - {tag}: ({x_before_rounding:.1f}, {y_before_rounding:.1f}) → ({x_in:.1f}, {y_in:.1f})")
+            else:
+                # For P&ID diagrams, use 0.1mm precision
+                x_in = round(x_in, 1)
+                y_in = round(y_in, 1)
+                y_cad = y_in  # Update y_cad as well
 
             item = {
                 "tag": tag,

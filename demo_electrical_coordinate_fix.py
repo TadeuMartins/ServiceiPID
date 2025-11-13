@@ -32,8 +32,8 @@ def demo_coordinate_fix():
     print("   - Didn't match P&ID behavior which uses actual dimensions")
     
     print("\n✅ SOLUTION:")
-    print("   - Now uses actual sheet dimensions (like P&ID does)")
-    print("   - Uses 0.1mm precision (same as P&ID)")
+    print("   - Now uses actual sheet dimensions (not hardcoded A3)")
+    print("   - Maintains 4mm grid rounding (but with correct scale)")
     print("   - Prompts include sheet dimensions and mm/px conversion ratios")
     
     print("\n" + "="*70)
@@ -69,9 +69,15 @@ def demo_coordinate_fix():
     eq_mm_x = (eq_px_x / wpx_a3) * w_mm_a3
     eq_mm_y = (eq_px_y / hpx_a3) * h_mm_a3
     
+    # Apply 4mm rounding
+    import math
+    eq_mm_x_rounded = math.floor((eq_mm_x + 2.0) / 4.0) * 4.0
+    eq_mm_y_rounded = math.floor((eq_mm_y + 2.0) / 4.0) * 4.0
+    
     print(f"\n📍 Equipment at pixel ({eq_px_x:.0f}, {eq_px_y:.0f})")
-    print(f"   Converts to: ({eq_mm_x:.1f}mm, {eq_mm_y:.1f}mm)")
-    print(f"   ✅ Precision: 0.1mm (same as P&ID)")
+    print(f"   Calculated: ({eq_mm_x:.2f}mm, {eq_mm_y:.2f}mm)")
+    print(f"   After 4mm rounding: ({eq_mm_x_rounded:.0f}mm, {eq_mm_y_rounded:.0f}mm)")
+    print(f"   ✅ Coordinates use actual sheet size, then rounded to 4mm grid")
     
     print("\n" + "="*70)
     print("EXAMPLE 2: A1 SHEET (594mm x 841mm) - LARGER THAN A3")
@@ -107,9 +113,14 @@ def demo_coordinate_fix():
     eq_mm_x_a1 = (eq_px_x / wpx_a1) * w_mm_a1
     eq_mm_y_a1 = (eq_px_y / hpx_a1) * h_mm_a1
     
+    # Apply 4mm rounding
+    eq_mm_x_a1_rounded = math.floor((eq_mm_x_a1 + 2.0) / 4.0) * 4.0
+    eq_mm_y_a1_rounded = math.floor((eq_mm_y_a1 + 2.0) / 4.0) * 4.0
+    
     print(f"\n📍 Equipment at pixel ({eq_px_x:.0f}, {eq_px_y:.0f})")
-    print(f"   Converts to: ({eq_mm_x_a1:.1f}mm, {eq_mm_y_a1:.1f}mm)")
-    print(f"   ✅ Different from A3 example (correct for A1 sheet)")
+    print(f"   Calculated: ({eq_mm_x_a1:.2f}mm, {eq_mm_y_a1:.2f}mm)")
+    print(f"   After 4mm rounding: ({eq_mm_x_a1_rounded:.0f}mm, {eq_mm_y_a1_rounded:.0f}mm)")
+    print(f"   ✅ Uses A1 sheet dimensions (not A3!)")
     
     print("\n" + "="*70)
     print("COMPARISON: BEFORE vs AFTER")
@@ -118,14 +129,14 @@ def demo_coordinate_fix():
     print("\n❌ BEFORE (with hardcoded A3):")
     print("   - A1 sheet would be treated as A3")
     print("   - Coordinates would be wrong by a factor of:")
-    print(f"     X: {w_mm_a1/420.0:.2f}x")
-    print(f"     Y: {h_mm_a1/297.0:.2f}x")
-    print("   - 4mm rounding would lose precision")
+    print(f"     X: {w_mm_a1/420.0:.2f}x ({(w_mm_a1/420.0 - 1)*100:.0f}% error)")
+    print(f"     Y: {h_mm_a1/297.0:.2f}x ({(h_mm_a1/297.0 - 1)*100:.0f}% error)")
+    print("   - 4mm grid applied to WRONG scale")
     
-    print("\n✅ AFTER (with actual dimensions):")
+    print("\n✅ AFTER (with actual dimensions + 4mm grid):")
     print("   - Each sheet size uses its actual dimensions")
-    print("   - Coordinates are accurate to the real sheet")
-    print("   - 0.1mm precision (same as P&ID)")
+    print("   - Coordinates calculated with correct scale")
+    print("   - 4mm grid applied AFTER correct calculation")
     print("   - Prompts include mm/px conversion for LLM understanding")
     
     print("\n" + "="*70)
@@ -162,11 +173,12 @@ def demo_coordinate_fix():
     print("="*70)
     print("\nThe coordinate fix ensures that:")
     print("1. ✅ Electrical diagrams use actual sheet dimensions (not hardcoded A3)")
-    print("2. ✅ Coordinates have 0.1mm precision (same as P&ID)")
-    print("3. ✅ Prompts inform LLM about sheet size and px→mm conversion")
-    print("4. ✅ Works correctly for any sheet size (A0, A1, A2, A3, A4, custom)")
-    print("5. ✅ Tile processing includes offset and page context")
-    print("\n🎯 Result: Coordinates are now as accurate as P&ID diagrams!")
+    print("2. ✅ Coordinates calculated with correct scale based on real sheet size")
+    print("3. ✅ 4mm grid rounding applied AFTER correct calculation")
+    print("4. ✅ Prompts inform LLM about sheet size and px→mm conversion")
+    print("5. ✅ Works correctly for any sheet size (A0, A1, A2, A3, A4, custom)")
+    print("6. ✅ Tile processing includes offset and page context")
+    print("\n🎯 Result: Coordinates use correct scale + 4mm grid positioning!")
     print("="*70 + "\n")
 
 

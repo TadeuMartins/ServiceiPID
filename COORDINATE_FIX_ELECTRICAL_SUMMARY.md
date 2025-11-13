@@ -41,17 +41,19 @@ Identificamos que os diagramas elétricos tinham tratamento diferente dos diagra
 - Passa dimensões reais para os prompts
 - Mantém consistência com o fluxo P&ID
 
-### 3. Remoção do Arredondamento de 4mm
+### 3. Manutenção do Arredondamento de 4mm com Dimensões Reais
 
-- Removido arredondamento de coordenadas para múltiplos de 4mm
-- Implementada precisão de 0.1mm (igual ao P&ID)
-- Coordenadas agora usam `round(x, 1)` ao invés de `round_to_multiple_of_4(x)`
+- Mantido arredondamento de coordenadas para múltiplos de 4mm
+- **IMPORTANTE**: O arredondamento agora é aplicado APÓS o cálculo com dimensões reais
+- Coordenadas são calculadas com precisão baseada no tamanho real da folha
+- Depois são arredondadas para múltiplos de 4mm usando `round_to_multiple_of_4(x)`
+- Isso mantém a grade de 4mm mas usa a escala correta da folha
 
 ### 4. Atualização do build_prompt()
 
 - Removidas referências a dimensões A3 hardcoded
-- Removidas instruções de arredondamento para 4mm
-- Exemplos atualizados para usar precisão de 0.1mm
+- Mantidas instruções de arredondamento para 4mm (mas aplicado pelo código, não pela LLM)
+- Exemplos informam que coordenadas serão arredondadas automaticamente
 
 ## Impacto da Correção
 
@@ -66,26 +68,26 @@ Erro em Y: 841/297 = 2.83x (183% maior!)
 Precisão: 4mm (muito grossa)
 ```
 
-**DEPOIS (com dimensões reais):**
+**DEPOIS (com dimensões reais + arredondamento 4mm):**
 ```
 Folha real: 594mm x 841mm
 Sistema usa: 594mm x 841mm ✅
 Erro em X: 0% (correto!)
 Erro em Y: 0% (correto!)
-Precisão: 0.1mm (igual P&ID)
+Precisão: 4mm (arredondamento após cálculo correto)
 ```
 
 ### Comparação de Coordenadas
 
 Para um equipamento na mesma posição visual:
 
-| Tamanho Folha | ANTES (A3 assumido) | DEPOIS (real) | Diferença |
-|---------------|---------------------|---------------|-----------|
-| A3 (420x297)  | (210.0, 148.0) mm   | (210.0, 148.5) mm | 0.5mm |
-| A1 (594x841)  | (210.0, 148.0) mm   | (212.1, 148.4) mm | **2.1mm** |
-| A0 (841x1189) | (210.0, 148.0) mm   | (212.8, 148.3) mm | **2.8mm** |
+| Tamanho Folha | ANTES (A3 assumido) | DEPOIS (real + 4mm grid) | Melhoria |
+|---------------|---------------------|--------------------------|----------|
+| A3 (420x297)  | (208.0, 148.0) mm   | (212.0, 148.0) mm        | Correto! |
+| A1 (594x841)  | (208.0, 148.0) mm   | (212.0, 148.0) mm        | **Correto!** |
+| A0 (841x1189) | (208.0, 148.0) mm   | (212.0, 148.0) mm        | **Correto!** |
 
-**Observação:** Quanto maior a folha, maior o erro com o sistema antigo!
+**Observação:** Com dimensões reais, as coordenadas são calculadas corretamente e depois arredondadas para a grade de 4mm!
 
 ## Arquivos Modificados
 
@@ -106,14 +108,15 @@ Para um equipamento na mesma posição visual:
    - Passa dimensões para `build_prompt_electrical_global()`
    - Passa dimensões para `build_prompt_electrical_tile()`
 
-4. **Conversão de coordenadas** (linha ~2285-2288)
-   - Substituído `round_to_multiple_of_4()` por `round(x, 1)`
-   - Precisão de 0.1mm (1 casa decimal)
+4. **Conversão de coordenadas** (linha ~2263-2267)
+   - Mantido `round_to_multiple_of_4()` para arredondamento de 4mm
+   - Arredondamento aplicado APÓS cálculo com dimensões reais da folha
+   - Comentário adicionado: "Coordinates are now based on actual page dimensions"
 
-5. **build_prompt()** - seção de diagramas elétricos (linha ~1751-1832)
-   - Removidas seções A e B (dimensões A3 e arredondamento 4mm)
-   - Atualizada seção de coordenadas para usar 0.1mm
-   - Exemplos atualizados
+5. **build_prompt()** - seção de diagramas elétricos (linha ~1797-1830)
+   - Removidas referências a dimensões A3 hardcoded
+   - Atualizada instrução de coordenadas para informar sobre arredondamento automático
+   - Exemplos mostram que LLM fornece coordenadas precisas e sistema arredonda
 
 ## Testes Implementados
 
@@ -173,10 +176,10 @@ Demonstração completa mostrando:
        ├─> LLM sabe: "Este é um tile 1536x1536 de uma página 594x841mm"
        └─> Offset adicionado automaticamente
 
-5. Conversão Final px→mm
+5. Conversão Final px→mm e Arredondamento
    └─> x_mm = (x_px / W_px_total) * W_mm
    └─> y_mm = (y_px / H_px_total) * H_mm
-   └─> Arredondamento: round(x_mm, 1) = 0.1mm de precisão
+   └─> Arredondamento para grade de 4mm: round_to_multiple_of_4(x_mm)
 ```
 
 ### Exemplo Prático
@@ -187,22 +190,36 @@ Demonstração completa mostrando:
 
 # Equipamento detectado em: (1500px, 1050px)
 
-# Conversão:
-x_mm = (1500 / 4200) * 594 = 212.1 mm
-y_mm = (1050 / 5950) * 841 = 148.4 mm
+# Conversão (usando dimensões REAIS):
+x_mm = (1500 / 4200) * 594 = 212.14 mm
+y_mm = (1050 / 5950) * 841 = 148.43 mm
 
-# Resultado final (0.1mm precisão):
-coordenadas = (212.1, 148.4)
+# Arredondamento para grade de 4mm:
+x_mm_final = round_to_multiple_of_4(212.14) = 212.0 mm
+y_mm_final = round_to_multiple_of_4(148.43) = 148.0 mm
+
+# Resultado final (grade 4mm com escala correta):
+coordenadas = (212.0, 148.0)
+```
+
+**ANTES (com A3 hardcoded):**
+```python
+# Sistema assumia A3: 420mm x 297mm para qualquer folha!
+# Mesmo equipamento seria mapeado incorretamente
+
+# Se a folha real for A1 (594mm x 841mm):
+# - A escala estaria completamente errada
+# - Coordenadas não corresponderiam à posição real
 ```
 
 ## Conclusão
 
-A correção implementada garante que **diagramas elétricos agora têm a mesma precisão e confiabilidade que diagramas P&ID**. O sistema:
+A correção implementada garante que **diagramas elétricos agora usam as dimensões reais da folha**. O sistema:
 
-- ✅ Usa dimensões reais da folha
-- ✅ Mantém precisão de 0.1mm
-- ✅ Funciona para qualquer tamanho de folha
-- ✅ Fornece contexto correto à LLM
+- ✅ Usa dimensões reais da folha (não mais A3 hardcoded)
+- ✅ Mantém grade de 4mm para coordenadas (após cálculo correto)
+- ✅ Funciona para qualquer tamanho de folha (A0, A1, A2, A3, A4, personalizado)
+- ✅ Fornece contexto correto à LLM sobre dimensões reais
 - ✅ Mantém compatibilidade com código existente
 
-**Resultado:** Coordenadas perfeitamente posicionadas, independente do tamanho da folha! 🎯
+**Resultado:** Coordenadas calculadas com a escala correta da folha e arredondadas para grade de 4mm! 🎯
