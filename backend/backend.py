@@ -2207,9 +2207,10 @@ def run_electrical_pipeline(doc, dpi_global=220, dpi_tiles=300, tile_px=1536, ov
         W_mm_actual, H_mm_actual = points_to_mm(W_pts), points_to_mm(H_pts)
         log_to_front(f"📄 Dimensões reais do PDF: {W_mm_actual:.1f}mm x {H_mm_actual:.1f}mm")
         
-        # Target dimensions for output (always A3 for electrical diagrams)
-        W_mm_target, H_mm_target = get_electrical_diagram_dimensions()
-        log_to_front(f"📄 Dimensões alvo (A3 horizontal): {W_mm_target:.1f}mm x {H_mm_target:.1f}mm")
+        # Use actual dimensions for electrical diagrams (same as P&ID)
+        # No scaling to A3 - coordinates should match the actual diagram
+        W_mm, H_mm = W_mm_actual, H_mm_actual
+        log_to_front(f"📄 Dimensões de saída (actual): {W_mm:.1f}mm x {H_mm:.1f}mm")
         
         # Passada global (contexto/tag grande)
         pix = page.get_pixmap(dpi=dpi_global)
@@ -2270,26 +2271,19 @@ def run_electrical_pipeline(doc, dpi_global=220, dpi_tiles=300, tile_px=1536, ov
         # Exporta em mm e aplica matcher para SystemFullName
         page_items = []
         for e in eqs:
-            # Convert px->mm in ACTUAL page dimensions first
-            # Then scale to A3 target dimensions
+            # Convert px->mm using ACTUAL page dimensions (no scaling to A3)
+            # This matches P&ID behavior and keeps coordinates in actual diagram space
             if W_px_at_tiles is not None and H_px_at_tiles is not None:
-                # Step 1: Convert pixels to mm in actual page space
-                x_mm_actual = ((e.bbox.x + e.bbox.w/2) / W_px_at_tiles) * W_mm_actual
-                y_mm_actual = ((e.bbox.y + e.bbox.h/2) / H_px_at_tiles) * H_mm_actual
-                
-                # Step 2: Scale from actual page dimensions to A3 target dimensions
-                # This maps coordinates proportionally to the A3 space
-                x_mm = (x_mm_actual / W_mm_actual) * W_mm_target
-                y_mm = (y_mm_actual / H_mm_actual) * H_mm_target
+                # Convert pixels to mm in actual page space
+                x_mm = ((e.bbox.x + e.bbox.w/2) / W_px_at_tiles) * W_mm
+                y_mm = ((e.bbox.y + e.bbox.h/2) / H_px_at_tiles) * H_mm
             else:
-                # Fallback: Use DPI-based conversion to actual dimensions, then scale
-                x_mm_actual = ((e.bbox.x + e.bbox.w/2) / dpi_tiles) * 25.4
-                y_mm_actual = ((e.bbox.y + e.bbox.h/2) / dpi_tiles) * 25.4
-                x_mm = (x_mm_actual / W_mm_actual) * W_mm_target
-                y_mm = (y_mm_actual / H_mm_actual) * H_mm_target
+                # Fallback: Use DPI-based conversion
+                x_mm = ((e.bbox.x + e.bbox.w/2) / dpi_tiles) * 25.4
+                y_mm = ((e.bbox.y + e.bbox.h/2) / dpi_tiles) * 25.4
             
             # Round coordinates to multiples of 4mm for electrical diagrams
-            # Note: Coordinates are now scaled to A3 dimensions (420x297mm)
+            # Coordinates are in actual page dimensions (not scaled to A3)
             x_mm = round_to_multiple_of_4(x_mm)
             y_mm = round_to_multiple_of_4(y_mm)
             y_mm_cad = y_mm  # For electrical diagrams, y_mm_cad is same as y_mm (no flip)
@@ -2309,8 +2303,8 @@ def run_electrical_pipeline(doc, dpi_global=220, dpi_tiles=300, tile_px=1536, ov
                 "pagina": e.page,
                 "from": from_str,
                 "to": to_str,
-                "page_width_mm": W_mm_target,  # Report A3 dimensions
-                "page_height_mm": H_mm_target,
+                "page_width_mm": W_mm,  # Use actual page dimensions
+                "page_height_mm": H_mm,
             }
             
             # Apply system matcher to get SystemFullName
