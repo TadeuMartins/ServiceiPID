@@ -2778,29 +2778,35 @@ SPATIAL DISTRIBUTION AND LAYOUT:
 CRITICAL: Electrical diagrams should have components arranged VERTICALLY (top to bottom),
 not horizontally. Power flows from top (source) to bottom (loads).
 
+IMPORTANT: Use the FULL sheet dimensions (420mm x 297mm). Do NOT cluster components in a small area.
+Spread components across the entire available space for better readability and COMOS compatibility.
+
 1. Y Coordinates (vertical - MAIN AXIS):
-   - Power source zone (top): Y = 20-60 mm
+   - Power source zone (top): Y = 30-80 mm
      * Main incoming supply, transformers, main breakers
-   - Distribution zone (upper-middle): Y = 60-120 mm
+   - Distribution zone (upper-middle): Y = 80-140 mm
      * Switchboards, MCCs, distribution panels
-   - Control/Protection zone (middle): Y = 120-180 mm
+   - Control/Protection zone (middle): Y = 140-200 mm
      * Contactors, relays, protection devices, control circuits
-   - Load zone (lower): Y = 180-240 mm
+   - Load zone (lower): Y = 200-270 mm
      * Motors, final equipment, outputs
-   - Bottom margin: leave ~20-40 mm from Y=297mm
+   - Use vertical space from Y=30mm to Y=270mm (utilize 240mm of the 297mm height)
+   - Bottom margin: ~27 mm from Y=297mm
    
 2. X Coordinates (horizontal - SECONDARY AXIS):
-   - Left margin: start at X = 40-60 mm
-   - Main power circuit: X = 60-140 mm (left side)
-   - Control circuit: X = 180-260 mm (middle)
-   - Instrumentation/meters: X = 300-380 mm (right side)
-   - Right margin: leave ~20-40 mm from X=420mm
-   - For multiple parallel circuits: space horizontally 60-80mm apart
+   - Left margin: start at X = 30 mm
+   - Main power circuit: X = 50-150 mm (left side)
+   - Control circuit: X = 170-270 mm (middle)
+   - Instrumentation/meters: X = 290-390 mm (right side)
+   - Use horizontal space from X=30mm to X=390mm (utilize 360mm of the 420mm width)
+   - Right margin: ~30 mm from X=420mm
+   - For multiple parallel circuits: space horizontally 60-100mm apart
 
 3. Spacing:
    - Between main components (vertical): minimum 40-60 mm
-   - Between control elements: minimum 20-30 mm
-   - Between parallel circuits (horizontal): minimum 60-80 mm
+   - Between control elements: minimum 30-40 mm
+   - Between parallel circuits (horizontal): minimum 80-120 mm
+   - Distribute components to FILL the available space, not cluster them
    - Avoid overlaps
 
 **CRITICAL RULE FOR ELECTRICAL DIAGRAM COORDINATES:**
@@ -2809,6 +2815,13 @@ not horizontally. Power flows from top (source) to bottom (loads).
 - VERTICAL arrangement is MANDATORY - components flow from top to bottom
 - Y coordinate should increase as power flows from source to load
 - Main circuit on left, control in middle, instrumentation on right
+
+**CRITICAL: COMOS COMPATIBILITY - FULL SHEET UTILIZATION:**
+- The diagram MUST utilize the FULL A3 sheet (420mm x 297mm)
+- DO NOT cluster components in a small area (e.g., only 150mm x 90mm)
+- Spread components across the available space from X=30mm to X=390mm and Y=30mm to Y=270mm
+- This ensures proper visibility and compatibility with COMOS (Siemens) system
+- Use generous spacing between components for clarity
 
 ELECTRICAL CONNECTIONS (from/to):
 - Define electrical power/control flow
@@ -2995,13 +3008,14 @@ COORDINATE PRECISION REQUIREMENTS:"""
 EXAMPLE OUTPUT FOR ELECTRICAL DIAGRAM (Star-Delta Starter - VERTICAL LAYOUT):
 
 NOTE: Components are arranged VERTICALLY (top to bottom) following power flow.
+NOTE: This example shows PROPER utilization of the A3 sheet (420mm x 297mm).
 
 [
   {
     "tag": "CB-101",
     "descricao": "Main Circuit Breaker",
     "x_mm": 100.0,
-    "y_mm": 40.0,
+    "y_mm": 60.0,
     "from": "N/A",
     "to": "C-101"
   },
@@ -3009,7 +3023,7 @@ NOTE: Components are arranged VERTICALLY (top to bottom) following power flow.
     "tag": "C-101",
     "descricao": "Main Contactor",
     "x_mm": 100.0,
-    "y_mm": 100.0,
+    "y_mm": 120.0,
     "from": "CB-101",
     "to": "C-102"
   },
@@ -3017,7 +3031,7 @@ NOTE: Components are arranged VERTICALLY (top to bottom) following power flow.
     "tag": "C-102",
     "descricao": "Star Contactor",
     "x_mm": 80.0,
-    "y_mm": 160.0,
+    "y_mm": 180.0,
     "from": "C-101",
     "to": "M-101"
   },
@@ -3025,7 +3039,7 @@ NOTE: Components are arranged VERTICALLY (top to bottom) following power flow.
     "tag": "C-103",
     "descricao": "Delta Contactor",
     "x_mm": 120.0,
-    "y_mm": 160.0,
+    "y_mm": 180.0,
     "from": "C-101",
     "to": "M-101"
   },
@@ -3033,7 +3047,7 @@ NOTE: Components are arranged VERTICALLY (top to bottom) following power flow.
     "tag": "REL-101",
     "descricao": "Overload Relay",
     "x_mm": 100.0,
-    "y_mm": 200.0,
+    "y_mm": 230.0,
     "from": "C-102",
     "to": "M-101"
   },
@@ -3041,15 +3055,15 @@ NOTE: Components are arranged VERTICALLY (top to bottom) following power flow.
     "tag": "M-101",
     "descricao": "Three-Phase Motor",
     "x_mm": 100.0,
-    "y_mm": 240.0,
+    "y_mm": 260.0,
     "from": "REL-101",
     "to": "N/A"
   },
   {
     "tag": "A-101",
     "descricao": "Ammeter",
-    "x_mm": 200.0,
-    "y_mm": 100.0,
+    "x_mm": 300.0,
+    "y_mm": 120.0,
     "from": "C-101",
     "to": "N/A"
   }
